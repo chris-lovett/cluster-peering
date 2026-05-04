@@ -2,6 +2,22 @@
 
 Cluster peering enables secure service-to-service communication between independent Consul clusters across datacenters, cloud environments, or organizational boundaries.
 
+## 📖 Documentation
+
+**👉 [Complete Step-by-Step Implementation Guide](CLUSTER_PEERING_SETUP_GUIDE.md)**
+
+This comprehensive guide includes:
+- Detailed installation instructions with all required configurations
+- All YAML files with proper namespace settings
+- Critical warnings and lessons learned
+- Complete troubleshooting section for common issues
+- Verification procedures
+- Quick reference commands
+
+**Start here for your implementation.**
+
+---
+
 ## Overview
 
 ### Key benefits
