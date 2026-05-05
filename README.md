@@ -75,28 +75,4 @@ Complete these steps in order:
 5. Export services
 6. Create service intentions
 
-## Prerequisites
-
-### Environment setup
-
-```bash
-kubectl config get-contexts
-
-export CLUSTER1_CONTEXT=<cluster-1>
-export CLUSTER2_CONTEXT=<cluster-2>
-export CONSUL_VERSION=<version>
-```
-
-### Required Helm values
-
-```yaml
-global:
-  name: consul
-  datacenter: dc1 # dc1 for cluster 1, dc2 for cluster 2
-  peering:
-    enabled: true
-  tls:
-    enabled: true
-
-connectInject:
-  enabled: true # REQUIRED
+**For detailed prerequisites, configuration, and step-by-step instructions, see the [Implementation Guide](CLUSTER_PEERING_SETUP_GUIDE.md).**
