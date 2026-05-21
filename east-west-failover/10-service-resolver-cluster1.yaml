@@ -1,16 +1,16 @@
 # Phase 5 — Failover Policy (ServiceResolver)
-# Apply to: cluster-01 (DIALER)
+# Apply to: cluster1 (DIALER)
 #
-# When ALL healthy instances of backend on cluster-01 are unavailable,
-# Consul automatically routes traffic to the backend on the cluster-02 peer.
+# When ALL healthy instances of backend on cluster1 are unavailable,
+# Consul automatically routes traffic to the backend on the cluster2 peer.
 #
 # Failover is triggered when Consul health checks report all local backend
 # instances as critical — this includes the pod going unready or being scaled to 0.
 #
 # Demo sequence:
-#   Trigger:   kubectl --context=cluster-01 scale deploy/backend -n default --replicas=0
-#   Verify:    watch the frontend response body change to "cluster-02 — FAILOVER"
-#   Failback:  kubectl --context=cluster-01 scale deploy/backend -n default --replicas=1
+#   Trigger:   kubectl --context=cluster1 scale deploy/backend -n default --replicas=0
+#   Verify:    watch the frontend response body change to "cluster2 — FAILOVER"
+#   Failback:  kubectl --context=cluster1 scale deploy/backend -n default --replicas=1
 apiVersion: consul.hashicorp.com/v1alpha1
 kind: ServiceResolver
 metadata:
@@ -25,6 +25,6 @@ spec:
     # Use a named subset key here to scope failover to a specific deployment group.
     "*":
       targets:
-        - peer: cluster-02        # Must match PeeringAcceptor.metadata.name on cluster-02
+        - peer: cluster2        # Must match PeeringAcceptor.metadata.name on cluster2
           service: backend        # Service name in the remote peer's catalog
           namespace: default      # Namespace of the service in the remote peer

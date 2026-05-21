@@ -1,5 +1,5 @@
 # Phase 3c — Frontend Service
-# Apply to: cluster-01 (DIALER)
+# Apply to: cluster1 (DIALER)
 #
 # Frontend calls http://backend (local Consul catalog lookup).
 # With transparent proxy enabled, Envoy intercepts the outbound connection and
@@ -55,12 +55,12 @@ spec:
               value: "0.0.0.0:9090"
             - name: UPSTREAM_URIS
               # Call local backend — Consul's ServiceResolver handles failover
-              # to the cluster-02 peer when the local backend is unhealthy.
+              # to the cluster2 peer when the local backend is unhealthy.
               value: "http://backend"
             - name: NAME
               value: "frontend"
             - name: MESSAGE
-              value: "Hello from cluster-01"
+              value: "Hello from cluster1"
             - name: HTTP_CLIENT_KEEP_ALIVES
               # Disable keep-alives so each request creates a fresh connection,
               # making failover visible immediately in the demo.

@@ -1,7 +1,7 @@
 # Phase 1 — Mesh Gateway Config
-# Apply to: cluster-02 (ACCEPTOR)
+# Apply to: cluster2 (ACCEPTOR)
 #
-# Identical settings to cluster-01. Both clusters must agree on
+# Identical settings to cluster1. Both clusters must agree on
 # peerThroughMeshGateways and meshGateway mode for peering to establish.
 apiVersion: consul.hashicorp.com/v1alpha1
 kind: Mesh

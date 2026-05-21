@@ -1,8 +1,8 @@
 # Phase 4b — Service Intentions
-# Apply to: cluster-02 (ACCEPTOR)
+# Apply to: cluster2 (ACCEPTOR)
 #
 # Default-deny all traffic to backend, then explicitly allow only the
-# frontend service running on cluster-01 to connect.
+# frontend service running on cluster1 to connect.
 #
 # Without this allow intention, Consul's default-deny ACL policy blocks
 # all cross-cluster connections even after peering is established.
@@ -20,7 +20,7 @@ spec:
       # the only permitted path to backend.
       action: deny
     - name: frontend
-      # Allow only the frontend service from the cluster-01 peer.
-      # "peer" must match PeeringDialer.metadata.name on cluster-01.
+      # Allow only the frontend service from the cluster1 peer.
+      # "peer" must match PeeringDialer.metadata.name on cluster1.
       action: allow
-      peer: cluster-01
+      peer: cluster1

@@ -1,5 +1,5 @@
 # Phase 1 — Mesh Gateway Config
-# Apply to: cluster-01 (DIALER)
+# Apply to: cluster1 (DIALER)
 #
 # Enables mesh gateway peering and configures all proxies to route
 # cross-cluster traffic through their local mesh gateway.

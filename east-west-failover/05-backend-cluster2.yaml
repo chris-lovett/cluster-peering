@@ -1,12 +1,9 @@
-# Phase 3b — Backend Service (PRIMARY)
-# Apply to: cluster-01 (DIALER)
+# Phase 3a — Backend Service (FAILOVER TARGET)
+# Apply to: cluster2 (ACCEPTOR)
 #
-# This instance of backend is the PRIMARY. Frontend calls http://backend and
-# Consul routes here first. Scale this to 0 replicas during the demo to trigger
-# failover to the cluster-02 instance.
-#
-# Failover demo command:
-#   kubectl --context=cluster-01 scale deployment/backend -n default --replicas=0
+# This instance of backend is the FAILOVER target. Consul will route traffic
+# here only when all healthy instances of backend on cluster1 are unavailable.
+# See 10-service-resolver-cluster01.yaml for the failover policy.
 apiVersion: v1
 kind: Service
 metadata:
@@ -44,6 +41,7 @@ spec:
       labels:
         app: backend
       annotations:
+        # Opt this pod into the Consul service mesh (injects Envoy sidecar).
         "consul.hashicorp.com/connect-inject": "true"
     spec:
       serviceAccountName: backend
@@ -56,7 +54,7 @@ spec:
             - name: LISTEN_ADDR
               value: "0.0.0.0:9090"
             - name: NAME
-              # Distinguish primary responses in the demo UI.
-              value: "backend (cluster-01 — PRIMARY)"
+              # Distinguish failover responses in the demo UI.
+              value: "backend (cluster2 — FAILOVER)"
             - name: MESSAGE
-              value: "Primary response from cluster-01"
+              value: "Failover response from cluster2"
