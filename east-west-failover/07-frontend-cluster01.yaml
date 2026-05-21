@@ -1,0 +1,67 @@
+# Phase 3c — Frontend Service
+# Apply to: cluster-01 (DIALER)
+#
+# Frontend calls http://backend (local Consul catalog lookup).
+# With transparent proxy enabled, Envoy intercepts the outbound connection and
+# applies the ServiceResolver failover policy (10-service-resolver-cluster01.yaml).
+# No static upstream annotation needed — Consul handles routing transparently.
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: default
+spec:
+  selector:
+    app: frontend
+  ports:
+    - name: http
+      protocol: TCP
+      port: 9090
+      targetPort: 9090
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: frontend
+  namespace: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: default
+  labels:
+    app: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+      annotations:
+        "consul.hashicorp.com/connect-inject": "true"
+    spec:
+      serviceAccountName: frontend
+      containers:
+        - name: frontend
+          image: nicholasjackson/fake-service:v0.22.4
+          ports:
+            - containerPort: 9090
+          env:
+            - name: LISTEN_ADDR
+              value: "0.0.0.0:9090"
+            - name: UPSTREAM_URIS
+              # Call local backend — Consul's ServiceResolver handles failover
+              # to the cluster-02 peer when the local backend is unhealthy.
+              value: "http://backend"
+            - name: NAME
+              value: "frontend"
+            - name: MESSAGE
+              value: "Hello from cluster-01"
+            - name: HTTP_CLIENT_KEEP_ALIVES
+              # Disable keep-alives so each request creates a fresh connection,
+              # making failover visible immediately in the demo.
+              value: "false"

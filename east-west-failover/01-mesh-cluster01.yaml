@@ -1,0 +1,27 @@
+# Phase 1 — Mesh Gateway Config
+# Apply to: cluster-01 (DIALER)
+#
+# Enables mesh gateway peering and configures all proxies to route
+# cross-cluster traffic through their local mesh gateway.
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: Mesh
+metadata:
+  name: mesh
+  namespace: consul
+spec:
+  peering:
+    # Route cross-cluster traffic through mesh gateways instead of direct sidecar
+    # connections. Required for production peering topologies and OpenShift CNI.
+    peerThroughMeshGateways: true
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ProxyDefaults
+metadata:
+  name: global          # "global" is the only valid name — applies to all Envoy proxies
+  namespace: consul
+spec:
+  meshGateway:
+    # "local" mode: sidecar proxies forward outbound peering traffic to their
+    # cluster-local mesh gateway, which then routes to the remote cluster's gateway.
+    # Do NOT use "remote" mode when peerThroughMeshGateways is true.
+    mode: local

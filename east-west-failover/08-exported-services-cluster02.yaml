@@ -1,0 +1,22 @@
+# Phase 4a — Exported Services
+# Apply to: cluster-02 (ACCEPTOR)
+#
+# Makes the backend service on cluster-02 discoverable by cluster-01.
+# Without this, cluster-01's ServiceResolver cannot resolve peer targets
+# and failover will silently fail.
+#
+# The consumer peer name "cluster-01" MUST match the PeeringDialer
+# metadata.name on cluster-01.
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ExportedServices
+metadata:
+  # "default" is required — there is only one ExportedServices resource per partition.
+  name: default
+  namespace: consul
+spec:
+  services:
+    - name: backend
+      consumers:
+        # Export backend to the cluster-01 peer.
+        # This name must match PeeringDialer.metadata.name on cluster-01.
+        - peer: cluster-01

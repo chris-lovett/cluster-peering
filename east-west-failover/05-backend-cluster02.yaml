@@ -1,0 +1,60 @@
+# Phase 3a — Backend Service (FAILOVER TARGET)
+# Apply to: cluster-02 (ACCEPTOR)
+#
+# This instance of backend is the FAILOVER target. Consul will route traffic
+# here only when all healthy instances of backend on cluster-01 are unavailable.
+# See 10-service-resolver-cluster01.yaml for the failover policy.
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: default
+spec:
+  selector:
+    app: backend
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 9090
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backend
+  namespace: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: default
+  labels:
+    app: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+      annotations:
+        # Opt this pod into the Consul service mesh (injects Envoy sidecar).
+        "consul.hashicorp.com/connect-inject": "true"
+    spec:
+      serviceAccountName: backend
+      containers:
+        - name: backend
+          image: nicholasjackson/fake-service:v0.22.4
+          ports:
+            - containerPort: 9090
+          env:
+            - name: LISTEN_ADDR
+              value: "0.0.0.0:9090"
+            - name: NAME
+              # Distinguish failover responses in the demo UI.
+              value: "backend (cluster-02 — FAILOVER)"
+            - name: MESSAGE
+              value: "Failover response from cluster-02"

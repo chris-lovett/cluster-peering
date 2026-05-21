@@ -1,0 +1,62 @@
+# Phase 3b — Backend Service (PRIMARY)
+# Apply to: cluster-01 (DIALER)
+#
+# This instance of backend is the PRIMARY. Frontend calls http://backend and
+# Consul routes here first. Scale this to 0 replicas during the demo to trigger
+# failover to the cluster-02 instance.
+#
+# Failover demo command:
+#   kubectl --context=cluster-01 scale deployment/backend -n default --replicas=0
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: default
+spec:
+  selector:
+    app: backend
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 9090
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backend
+  namespace: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: default
+  labels:
+    app: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+      annotations:
+        "consul.hashicorp.com/connect-inject": "true"
+    spec:
+      serviceAccountName: backend
+      containers:
+        - name: backend
+          image: nicholasjackson/fake-service:v0.22.4
+          ports:
+            - containerPort: 9090
+          env:
+            - name: LISTEN_ADDR
+              value: "0.0.0.0:9090"
+            - name: NAME
+              # Distinguish primary responses in the demo UI.
+              value: "backend (cluster-01 — PRIMARY)"
+            - name: MESSAGE
+              value: "Primary response from cluster-01"

@@ -1,0 +1,23 @@
+# Phase 1 — Mesh Gateway Config
+# Apply to: cluster-02 (ACCEPTOR)
+#
+# Identical settings to cluster-01. Both clusters must agree on
+# peerThroughMeshGateways and meshGateway mode for peering to establish.
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: Mesh
+metadata:
+  name: mesh
+  namespace: consul
+spec:
+  peering:
+    # Both clusters must have this set to true before establishing a peering.
+    peerThroughMeshGateways: true
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ProxyDefaults
+metadata:
+  name: global
+  namespace: consul
+spec:
+  meshGateway:
+    mode: local
