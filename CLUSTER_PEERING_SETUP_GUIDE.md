@@ -88,7 +88,7 @@ meshGateway:
     port: 443
 ```
 
-> **⚠️ Critical:** The `connectInject.enabled: true` and `meshGateway.wanAddress` settings are **required**. Without them, peering will fail.
+> **⚠️ Critical:** `connectInject.enabled: true` and `meshGateway.wanAddress` are **required**. Peering CRDs also require healthy Consul Kubernetes control-plane components.
 
 ### 1.2 Install Consul on Cluster 1
 
@@ -127,6 +127,58 @@ kubectl --context $CLUSTER2_CONTEXT get pods -n consul
 ```
 
 Wait until all pods show `Running` status.
+
+### 1.5 Verify Consul Control Plane Is Healthy
+
+These CRD workflows require healthy Consul Kubernetes control-plane components:
+
+- `Mesh`
+- `ProxyDefaults`
+- `PeeringAcceptor`
+- `PeeringDialer`
+- `ExportedServices`
+- `ServiceIntentions`
+- `ServiceResolver`
+
+Run:
+
+```bash
+# Verify required deployments exist
+kubectl --context $CLUSTER1_CONTEXT get deploy consul-connect-injector consul-webhook-cert-manager -n consul
+kubectl --context $CLUSTER2_CONTEXT get deploy consul-connect-injector consul-webhook-cert-manager -n consul
+
+# Verify readiness
+kubectl --context $CLUSTER1_CONTEXT rollout status deployment/consul-connect-injector -n consul
+kubectl --context $CLUSTER1_CONTEXT rollout status deployment/consul-webhook-cert-manager -n consul
+kubectl --context $CLUSTER2_CONTEXT rollout status deployment/consul-connect-injector -n consul
+kubectl --context $CLUSTER2_CONTEXT rollout status deployment/consul-webhook-cert-manager -n consul
+```
+
+Verify peering CRDs are installed:
+
+```bash
+kubectl --context $CLUSTER1_CONTEXT get crd peeringacceptors.consul.hashicorp.com peeringdialers.consul.hashicorp.com exportedservices.consul.hashicorp.com serviceintentions.consul.hashicorp.com serviceresolvers.consul.hashicorp.com
+```
+
+If components are missing or unhealthy, reconcile both releases:
+
+```bash
+helm upgrade ${HELM_RELEASE_NAME1} hashicorp/consul \
+  --namespace consul \
+  --version ${CONSUL_VERSION} \
+  --values values.yaml \
+  --set global.datacenter=dc1 \
+  --kube-context $CLUSTER1_CONTEXT \
+  --cleanup-on-fail
+
+helm upgrade ${HELM_RELEASE_NAME2} hashicorp/consul \
+  --namespace consul \
+  --version ${CONSUL_VERSION} \
+  --values values.yaml \
+  --set global.datacenter=dc2 \
+  --kube-context $CLUSTER2_CONTEXT \
+  --cleanup-on-fail
+```
 
 ---
 
@@ -740,6 +792,48 @@ helm upgrade consul hashicorp/consul \
   --set connectInject.enabled=true \
   --kube-context $CLUSTER1_CONTEXT \
   --cleanup-on-fail
+```
+
+---
+
+### Issue 6: CRDs Apply but Never Reconcile
+
+**Symptoms:** `Mesh`, `PeeringAcceptor`, `PeeringDialer`, `ExportedServices`, `ServiceIntentions`, or `ServiceResolver` stay unsynced, and token generation does not complete.
+
+**Likely Cause:** Consul Kubernetes control-plane components are missing/unhealthy, or peering CRDs were not installed.
+
+**Resolution:**
+
+```bash
+# Check control-plane components
+kubectl --context $CLUSTER1_CONTEXT get deploy consul-connect-injector consul-webhook-cert-manager -n consul
+kubectl --context $CLUSTER2_CONTEXT get deploy consul-connect-injector consul-webhook-cert-manager -n consul
+
+# Check peering CRDs
+kubectl --context $CLUSTER1_CONTEXT get crd peeringacceptors.consul.hashicorp.com peeringdialers.consul.hashicorp.com exportedservices.consul.hashicorp.com serviceintentions.consul.hashicorp.com serviceresolvers.consul.hashicorp.com
+
+# If missing/unhealthy, upgrade both releases
+helm upgrade ${HELM_RELEASE_NAME1} hashicorp/consul \
+  --namespace consul \
+  --version ${CONSUL_VERSION} \
+  --values values.yaml \
+  --set global.datacenter=dc1 \
+  --kube-context $CLUSTER1_CONTEXT \
+  --cleanup-on-fail
+
+helm upgrade ${HELM_RELEASE_NAME2} hashicorp/consul \
+  --namespace consul \
+  --version ${CONSUL_VERSION} \
+  --values values.yaml \
+  --set global.datacenter=dc2 \
+  --kube-context $CLUSTER2_CONTEXT \
+  --cleanup-on-fail
+
+# Verify control-plane readiness after upgrade
+kubectl --context $CLUSTER1_CONTEXT rollout status deployment/consul-connect-injector -n consul
+kubectl --context $CLUSTER1_CONTEXT rollout status deployment/consul-webhook-cert-manager -n consul
+kubectl --context $CLUSTER2_CONTEXT rollout status deployment/consul-connect-injector -n consul
+kubectl --context $CLUSTER2_CONTEXT rollout status deployment/consul-webhook-cert-manager -n consul
 ```
 
 ---

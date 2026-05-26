@@ -33,6 +33,35 @@ wait_ready() {
 }
 
 # =============================================================================
+# PREFLIGHT — Verify Consul Control Plane Is Ready
+# Mesh/peering CRDs require healthy consul-k8s control-plane components.
+# =============================================================================
+preflight_controller() {
+  banner "PREFLIGHT — Verify Consul Control Plane"
+
+  echo "▶ [cluster1] Verifying control-plane deployments..."
+  c1 get deployment consul-connect-injector -n "${CONSUL_NS}" >/dev/null
+  c1 get deployment consul-webhook-cert-manager -n "${CONSUL_NS}" >/dev/null
+  c1 rollout status deployment/consul-connect-injector -n "${CONSUL_NS}" --timeout=180s
+  c1 rollout status deployment/consul-webhook-cert-manager -n "${CONSUL_NS}" --timeout=180s
+
+  echo "▶ [cluster2] Verifying control-plane deployments..."
+  c2 get deployment consul-connect-injector -n "${CONSUL_NS}" >/dev/null
+  c2 get deployment consul-webhook-cert-manager -n "${CONSUL_NS}" >/dev/null
+  c2 rollout status deployment/consul-connect-injector -n "${CONSUL_NS}" --timeout=180s
+  c2 rollout status deployment/consul-webhook-cert-manager -n "${CONSUL_NS}" --timeout=180s
+
+  echo "▶ Verifying peering-related CRDs exist..."
+  c1 get crd peeringacceptors.consul.hashicorp.com >/dev/null
+  c1 get crd peeringdialers.consul.hashicorp.com >/dev/null
+  c1 get crd exportedservices.consul.hashicorp.com >/dev/null
+  c1 get crd serviceintentions.consul.hashicorp.com >/dev/null
+  c1 get crd serviceresolvers.consul.hashicorp.com >/dev/null
+
+  echo "✔ Consul control plane is ready for peering CRDs"
+}
+
+# =============================================================================
 # PHASE 1 — Mesh Gateway Config
 # Apply Mesh + ProxyDefaults to both clusters.
 # Both clusters must agree on peerThroughMeshGateways before peering.
@@ -41,14 +70,26 @@ phase1_mesh() {
   banner "PHASE 1 — Mesh Gateway Config"
 
   echo "▶ Applying mesh config to cluster1..."
-  c1 apply -f "${DIR}/01-mesh-cluster1.yaml"
+  if c1 get mesh mesh -n "${CONSUL_NS}" >/dev/null 2>&1; then
+    c1 apply -f "${DIR}/01-mesh-cluster1.yaml"
+  elif c1 get mesh -A --no-headers 2>/dev/null | grep -q .; then
+    echo "⚠ Mesh CR already exists outside ${CONSUL_NS} on cluster1; skipping mesh create to avoid duplicate-mesh error"
+  else
+    c1 apply -f "${DIR}/01-mesh-cluster1.yaml"
+  fi
 
   echo "▶ Applying mesh config to cluster2..."
-  c2 apply -f "${DIR}/02-mesh-cluster2.yaml"
+  if c2 get mesh mesh -n "${CONSUL_NS}" >/dev/null 2>&1; then
+    c2 apply -f "${DIR}/02-mesh-cluster2.yaml"
+  elif c2 get mesh -A --no-headers 2>/dev/null | grep -q .; then
+    echo "⚠ Mesh CR already exists outside ${CONSUL_NS} on cluster2; skipping mesh create to avoid duplicate-mesh error"
+  else
+    c2 apply -f "${DIR}/02-mesh-cluster2.yaml"
+  fi
 
   echo "✔ Verifying Mesh CRDs (expect: synced)..."
-  c1 get mesh mesh -n "${CONSUL_NS}" -o jsonpath='{.status.conditions[?(@.type=="SyncedToConsul")].status}'; echo
-  c2 get mesh mesh -n "${CONSUL_NS}" -o jsonpath='{.status.conditions[?(@.type=="SyncedToConsul")].status}'; echo
+  c1 get mesh -A
+  c2 get mesh -A
 }
 
 # =============================================================================
@@ -76,25 +117,38 @@ phase2_peering() {
   # 2b — Token copy
   echo "▶ Copying peering-token Secret from cluster2 → cluster1..."
   TOKEN=$(c2 get secret peering-token -n "${CONSUL_NS}" -o jsonpath='{.data.data}')
-  kubectl --context="${CONTEXT_C1}" create secret generic peering-token \
-    --namespace="${CONSUL_NS}" \
-    --from-literal=data="${TOKEN}" \
-    --dry-run=client -o yaml | c1 apply -f -
+  # Write the source base64 payload directly into Secret.data.data.
+  # Using --from-literal here would base64-encode again and corrupt the token.
+  cat <<EOF | c1 apply -f -
+apiVersion: v1
+kind: Secret
+metadata:
+  name: peering-token
+  namespace: ${CONSUL_NS}
+type: Opaque
+data:
+  data: ${TOKEN}
+EOF
   echo "✔ peering-token Secret created on cluster1"
 
   # 2c — Dialer
   echo "▶ [cluster1] Creating PeeringDialer..."
   c1 apply -f "${DIR}/04-dialer-cluster1.yaml"
 
-  echo "⏳ Waiting for peering to reach ACTIVE state..."
-  until c1 get peeringdialers cluster1 -n "${CONSUL_NS}" \
-        -o jsonpath='{.status.conditions[?(@.type=="Active")].status}' 2>/dev/null \
-        | grep -q "True"; do
+    echo "⏳ Waiting for peering dialer to report Synced=True..."
+    until c1 get peeringdialers cluster1 -n "${CONSUL_NS}" \
+      -o jsonpath='{.status.conditions[?(@.type=="Synced")].status}' 2>/dev/null \
+      | grep -q "True"; do
     sleep 3
     echo "   ... still waiting"
   done
 
-  echo "✔ Peering established!"
+    echo "✔ Peering dialer synced"
+    echo "▶ Consul peering state (cluster1 server):"
+    TOKEN=$(c1 get secret consul-bootstrap-acl-token -n "${CONSUL_NS}" -o jsonpath='{.data.token}' | base64 --decode)
+    c1 exec -n "${CONSUL_NS}" consul-server-0 -- consul peering list -token "${TOKEN}" || true
+
+    echo "✔ Peering established!"
   echo
   echo "📋 Peering status on cluster1:"
   c1 get peeringdialers -n "${CONSUL_NS}"
@@ -286,6 +340,7 @@ main() {
   echo "  cluster2 context : ${CONTEXT_C2}"
   echo
 
+  preflight_controller
   phase1_mesh
   phase2_peering
   phase3_services

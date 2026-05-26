@@ -75,4 +75,7 @@ Complete these steps in order:
 5. Export services
 6. Create service intentions
 
+Important prerequisite:
+- Ensure the Consul Kubernetes control plane is healthy on both clusters (at minimum `consul-connect-injector` and `consul-webhook-cert-manager`) before applying peering CRDs.
+
 **For detailed prerequisites, configuration, and step-by-step instructions, see the [Implementation Guide](CLUSTER_PEERING_SETUP_GUIDE.md).**

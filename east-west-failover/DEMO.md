@@ -62,6 +62,18 @@ kubectl --context=cluster2 get pods -n consul
 # Expected: same
 ```
 
+Verify the Consul Kubernetes control plane is healthy before applying peering CRDs:
+
+```bash
+kubectl --context=cluster1 get deploy consul-connect-injector consul-webhook-cert-manager -n consul
+kubectl --context=cluster2 get deploy consul-connect-injector consul-webhook-cert-manager -n consul
+
+kubectl --context=cluster1 rollout status deployment/consul-connect-injector -n consul
+kubectl --context=cluster1 rollout status deployment/consul-webhook-cert-manager -n consul
+kubectl --context=cluster2 rollout status deployment/consul-connect-injector -n consul
+kubectl --context=cluster2 rollout status deployment/consul-webhook-cert-manager -n consul
+```
+
 ---
 
 ## Quick Start (automated)
@@ -302,6 +314,7 @@ primary. No config changes needed.
 | `connection refused` after failover | Intention missing or wrong peer name | Verify `09-intentions-cluster2.yaml` — `peer: cluster1` must match `PeeringDialer.metadata.name` |
 | ServiceResolver not activating | ExportedServices not applied | Apply `08-exported-services-cluster2.yaml`; verify `consul.hashicorp.com/peering-token` label on secret |
 | `wget` returns 503 | Pod not injected with sidecar | Check `consul.hashicorp.com/connect-inject: "true"` annotation; verify `connectInject.default: true` in Helm values |
+| Token not generated / CRDs unsynced | Consul control plane unhealthy | Verify `consul-connect-injector` and `consul-webhook-cert-manager` are `Available` and peering CRDs exist |
 | Traffic stays on cluster2 after failback | Health check re-registration lag | Wait 15–20s; check `consul catalog services -peer cluster2` on cluster1 |
 | Mesh gateway not reachable | `wanAddress.source: Service` not resolving | Verify mesh gateway Service has an external IP/hostname assigned |
 
