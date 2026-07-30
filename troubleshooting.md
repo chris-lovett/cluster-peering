@@ -62,10 +62,10 @@ Both must show `NAMESPACE: consul`. If either shows `default`, delete the mispla
 
 ```bash
 kubectl --context $CLUSTER2_CONTEXT delete peeringacceptor cluster-02 -n default
-kubectl --context $CLUSTER2_CONTEXT apply -f acceptor.yaml
+kubectl --context $CLUSTER2_CONTEXT apply -f config/acceptor.yaml
 
 kubectl --context $CLUSTER1_CONTEXT delete peeringdialer cluster-01 -n default
-kubectl --context $CLUSTER1_CONTEXT apply -f dialer.yaml
+kubectl --context $CLUSTER1_CONTEXT apply -f config/dialer.yaml
 ```
 
 ### Check 2 — Confirm the peering token exists on both clusters
@@ -88,7 +88,7 @@ kubectl --context $CLUSTER1_CONTEXT create secret generic peering-token \
   --from-literal=data="${TOKEN}" \
   --dry-run=client -o yaml | kubectl --context $CLUSTER1_CONTEXT apply -f -
 
-kubectl --context $CLUSTER1_CONTEXT apply -f dialer.yaml
+kubectl --context $CLUSTER1_CONTEXT apply -f config/dialer.yaml
 ```
 
 ### Check 3 — Confirm the mesh gateway has a public WAN address
@@ -317,7 +317,7 @@ kubectl --context $CLUSTER1_CONTEXT delete secret peering-token        -n consul
 sleep 30
 
 # Re-apply the acceptor to generate a fresh token
-kubectl --context $CLUSTER2_CONTEXT apply -f acceptor.yaml
+kubectl --context $CLUSTER2_CONTEXT apply -f config/acceptor.yaml
 ```
 
 Once the new token Secret is populated on cluster-02, copy it to cluster-01 and re-apply the dialer, following [Setup Guide steps 4 and 5](setup-guide.md#4-generate-the-peering-token).

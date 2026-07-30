@@ -150,11 +150,11 @@ If any CRD is missing or a deployment is not ready, see [troubleshooting.md — 
 Both clusters must have identical mesh gateway configuration before a peering connection can be established. Apply `mesh.yaml` and `proxy-defaults.yaml` to both clusters:
 
 ```bash
-kubectl --context $CLUSTER1_CONTEXT apply -f mesh.yaml
-kubectl --context $CLUSTER2_CONTEXT apply -f mesh.yaml
+kubectl --context $CLUSTER1_CONTEXT apply -f config/mesh.yaml
+kubectl --context $CLUSTER2_CONTEXT apply -f config/mesh.yaml
 
-kubectl --context $CLUSTER1_CONTEXT apply -f proxy-defaults.yaml
-kubectl --context $CLUSTER2_CONTEXT apply -f proxy-defaults.yaml
+kubectl --context $CLUSTER1_CONTEXT apply -f config/proxy-defaults.yaml
+kubectl --context $CLUSTER2_CONTEXT apply -f config/proxy-defaults.yaml
 ```
 
 `mesh.yaml` enables `peerThroughMeshGateways: true`. `proxy-defaults.yaml` sets `meshGateway.mode: local`, which tells every Envoy sidecar to send outbound cross-cluster traffic to the local mesh gateway rather than attempting a direct connection.
@@ -184,7 +184,7 @@ The acceptor cluster (cluster-02) generates a single-use token that the dialer w
 Apply the acceptor on cluster-02:
 
 ```bash
-kubectl --context $CLUSTER2_CONTEXT apply -f acceptor.yaml
+kubectl --context $CLUSTER2_CONTEXT apply -f config/acceptor.yaml
 ```
 
 Wait for the controller to populate the token Secret. The `DATA` column will be empty until the token is ready:
@@ -221,7 +221,7 @@ kubectl --context $CLUSTER1_CONTEXT get secret peering-token -n consul
 Apply the dialer on cluster-01. This initiates the connection to cluster-02 using the token copied in the previous step:
 
 ```bash
-kubectl --context $CLUSTER1_CONTEXT apply -f dialer.yaml
+kubectl --context $CLUSTER1_CONTEXT apply -f config/dialer.yaml
 ```
 
 The connection takes 15–30 seconds to establish. Verify that both sides show `SYNCED: True`:
@@ -260,7 +260,7 @@ With the peering established, services still cannot communicate. Two more resour
 Apply `exported-service.yaml` to cluster-02. Without this, cluster-01 cannot resolve `backend` through the peering at all:
 
 ```bash
-kubectl --context $CLUSTER2_CONTEXT apply -f exported-service.yaml
+kubectl --context $CLUSTER2_CONTEXT apply -f config/exported-service.yaml
 ```
 
 The `peer: cluster-01` value in this file must match the `metadata.name` of the `PeeringDialer` on cluster-01.
@@ -270,7 +270,7 @@ The `peer: cluster-01` value in this file must match the `metadata.name` of the 
 Consul enforces default-deny on all cross-cluster connections. Apply `intention.yaml` to cluster-02 to explicitly allow `frontend` on cluster-01 to reach `backend`:
 
 ```bash
-kubectl --context $CLUSTER2_CONTEXT apply -f intention.yaml
+kubectl --context $CLUSTER2_CONTEXT apply -f config/intention.yaml
 ```
 
 Again, the `peer: cluster-01` value must match the `PeeringDialer` name.
@@ -290,7 +290,7 @@ kubectl --context $CLUSTER2_CONTEXT get serviceintentions -n consul
 ### Deploy the backend on cluster-02
 
 ```bash
-kubectl --context $CLUSTER2_CONTEXT apply -f backend.yaml
+kubectl --context $CLUSTER2_CONTEXT apply -f app/backend.yaml
 kubectl --context $CLUSTER2_CONTEXT get pods -n default -w
 # Expected: backend-* Running 2/2  (app container + Envoy sidecar)
 ```
@@ -298,7 +298,7 @@ kubectl --context $CLUSTER2_CONTEXT get pods -n default -w
 ### Deploy the frontend on cluster-01
 
 ```bash
-kubectl --context $CLUSTER1_CONTEXT apply -f frontend.yaml
+kubectl --context $CLUSTER1_CONTEXT apply -f app/frontend.yaml
 kubectl --context $CLUSTER1_CONTEXT get pods -n default -w
 # Expected: frontend-* Running 2/2  (app container + Envoy sidecar)
 ```
