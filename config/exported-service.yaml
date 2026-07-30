@@ -1,3 +1,11 @@
+# Setup Guide — Step 6: Export Services
+# Apply to: cluster-02 (ACCEPTOR)
+#
+# Makes the backend service on cluster-02 discoverable by cluster-01.
+# Without this, cluster-01 cannot resolve any service through the peering —
+# the ServiceResolver failover target will silently fail.
+#
+# "peer: cluster-01" must match PeeringDialer.metadata.name on cluster-01 exactly.
 apiVersion: consul.hashicorp.com/v1alpha1
 kind: ExportedServices
 metadata:

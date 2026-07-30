@@ -1,3 +1,12 @@
+# Setup Guide — Step 6: Allow the Traffic
+# Apply to: cluster-02 (ACCEPTOR)
+#
+# Consul enforces default-deny on all cross-cluster connections.
+# This intention explicitly allows the frontend service on cluster-01 to
+# call the backend service on cluster-02, and denies all other sources.
+#
+# "peer: cluster-01" must match PeeringDialer.metadata.name on cluster-01 exactly.
+# If this value does not match, the connection is silently denied — no error surfaces.
 apiVersion: consul.hashicorp.com/v1alpha1
 kind: ServiceIntentions
 metadata:
@@ -11,4 +20,4 @@ spec:
       action: deny
     - name: frontend
       action: allow
-      peer: cluster-01 # Must match PeeringDialer name
+      peer: cluster-01 # Must match PeeringDialer.metadata.name on cluster-01

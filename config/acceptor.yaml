@@ -1,3 +1,12 @@
+# Setup Guide — Step 4: Generate the Peering Token
+# Apply to: cluster-02 (ACCEPTOR)
+#
+# The Consul controller generates a one-time peering token and stores it in
+# the Kubernetes Secret named below. After applying, wait for the Secret's
+# DATA column to show a value before copying it to cluster-01.
+#
+# IMPORTANT: The peering token is single-use. Re-applying this file generates
+# a new token and permanently invalidates the previous one.
 apiVersion: consul.hashicorp.com/v1alpha1
 kind: PeeringAcceptor
 metadata:

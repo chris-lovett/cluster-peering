@@ -117,7 +117,7 @@ Look for `ServiceTaggedAddresses.wan`. It must show the LoadBalancer hostname, n
 If it shows an internal IP, `meshGateway.wanAddress.source` is not set to `"Service"`. Fix `values.yaml` and upgrade:
 
 ```bash
-helm upgrade $HELM_RELEASE_NAME1 hashicorp/consul \
+helm upgrade <your-release-name> hashicorp/consul \
   --namespace consul --values values.yaml \
   --set global.datacenter=dc1 --kube-context $CLUSTER1_CONTEXT
 
@@ -169,13 +169,13 @@ kubectl --context $CLUSTER1_CONTEXT get crd \
 ### Step 3 — Upgrade both Helm releases to restore missing components
 
 ```bash
-helm upgrade $HELM_RELEASE_NAME1 hashicorp/consul \
-  --namespace consul --version $CONSUL_VERSION \
+helm upgrade <your-release-name> hashicorp/consul \
+  --namespace consul --version 2.0.1-ent \
   --values values.yaml --set global.datacenter=dc1 \
   --kube-context $CLUSTER1_CONTEXT --cleanup-on-fail
 
-helm upgrade $HELM_RELEASE_NAME2 hashicorp/consul \
-  --namespace consul --version $CONSUL_VERSION \
+helm upgrade <your-release-name> hashicorp/consul \
+  --namespace consul --version 2.0.1-ent \
   --values values.yaml --set global.datacenter=dc2 \
   --kube-context $CLUSTER2_CONTEXT --cleanup-on-fail
 ```
@@ -197,22 +197,32 @@ kubectl --context $CLUSTER2_CONTEXT rollout status deployment/consul-webhook-cer
 
 This happens when stale `MutatingWebhookConfiguration` objects reference an expired or rotated certificate. It is common after cluster restarts or Helm upgrades where the cert-manager rotated the webhook cert before the configuration was updated.
 
-Restart the connect-injector to trigger certificate rotation:
+Restart the connect-injector on **both clusters** to trigger certificate rotation:
 
 ```bash
 kubectl --context $CLUSTER1_CONTEXT rollout restart deployment consul-connect-injector -n consul
 kubectl --context $CLUSTER1_CONTEXT rollout status  deployment consul-connect-injector -n consul
+
+kubectl --context $CLUSTER2_CONTEXT rollout restart deployment consul-connect-injector -n consul
+kubectl --context $CLUSTER2_CONTEXT rollout status  deployment consul-connect-injector -n consul
 ```
 
-If the error persists, delete the stale webhook configurations and restart again to let the controller recreate them:
+If the error persists on either cluster, delete the stale webhook configurations and restart again to let the controller recreate them:
 
 ```bash
+# cluster-01
 kubectl --context $CLUSTER1_CONTEXT delete mutatingwebhookconfiguration \
   consul-connect-injector --ignore-not-found
 kubectl --context $CLUSTER1_CONTEXT delete mutatingwebhookconfiguration \
   consul-mutating-webhook-configuration --ignore-not-found
-
 kubectl --context $CLUSTER1_CONTEXT rollout restart deployment consul-connect-injector -n consul
+
+# cluster-02
+kubectl --context $CLUSTER2_CONTEXT delete mutatingwebhookconfiguration \
+  consul-connect-injector --ignore-not-found
+kubectl --context $CLUSTER2_CONTEXT delete mutatingwebhookconfiguration \
+  consul-mutating-webhook-configuration --ignore-not-found
+kubectl --context $CLUSTER2_CONTEXT rollout restart deployment consul-connect-injector -n consul
 ```
 
 **If a CRD is stuck in `Terminating`**, a finalizer is blocking deletion. Remove it manually:
@@ -249,8 +259,8 @@ kubectl --context $CLUSTER2_CONTEXT delete jobs \
   consul-server-acl-init consul-server-acl-init-cleanup consul-gateway-resources \
   -n consul --ignore-not-found
 
-helm upgrade $HELM_RELEASE_NAME2 hashicorp/consul \
-  --namespace consul --version $CONSUL_VERSION \
+helm upgrade <your-release-name> hashicorp/consul \
+  --namespace consul --version 2.0.1-ent \
   --values values.yaml --set global.datacenter=dc2 \
   --kube-context $CLUSTER2_CONTEXT --cleanup-on-fail
 ```
@@ -276,8 +286,8 @@ kubectl --context $CLUSTER1_CONTEXT delete jobs \
   consul-server-acl-init consul-server-acl-init-cleanup consul-gateway-resources \
   -n consul --ignore-not-found
 
-helm upgrade $HELM_RELEASE_NAME1 hashicorp/consul \
-  --namespace consul --version $CONSUL_VERSION \
+helm upgrade <your-release-name> hashicorp/consul \
+  --namespace consul --version 2.0.1-ent \
   --values values.yaml \
   --set global.datacenter=dc1 \
   --set global.peering.enabled=true \
@@ -328,25 +338,27 @@ Once the new token Secret is populated on cluster-02, copy it to cluster-01 and 
 
 ### Enterprise image pull failures
 
-The `values.yaml` references an image pull secret named `19261309-openshift-secret-pull-secret`. This must exist in the `consul` namespace on both clusters before `helm install`. Verify it is present:
+The `values.yaml` references an image pull secret (`imagePullSecrets[0].name`). Verify the secret exists in the `consul` namespace on both clusters:
 
 ```bash
-kubectl --context $CLUSTER1_CONTEXT get secret 19261309-openshift-secret-pull-secret -n consul
-kubectl --context $CLUSTER2_CONTEXT get secret 19261309-openshift-secret-pull-secret -n consul
+kubectl --context $CLUSTER1_CONTEXT get secret -n consul | grep pull
+kubectl --context $CLUSTER2_CONTEXT get secret -n consul | grep pull
 ```
 
-If pods are in `ImagePullBackOff`, create the secret from your HashiCorp entitlement credentials, then restart the affected pods.
+If pods are in `ImagePullBackOff`, confirm the secret name in `values.yaml` matches the secret present on the cluster, then restart the affected pods.
 
 ### Enterprise license not found
 
-Consul Enterprise will start without error but enter a crash loop approximately 6 hours after launch if no valid license is present. Create the secret before running `helm install`:
+Consul Enterprise will run without error but enter a crash loop approximately 6 hours after launch if no valid license is present. Verify the license secret exists on both clusters:
 
 ```bash
-# Verify on both clusters
 kubectl --context $CLUSTER1_CONTEXT get secret consul-ent-license -n consul
 kubectl --context $CLUSTER2_CONTEXT get secret consul-ent-license -n consul
+```
 
-# Create if missing
+If missing, create it now — Consul will pick it up on the next pod restart without requiring a Helm upgrade:
+
+```bash
 kubectl --context $CLUSTER1_CONTEXT create secret generic consul-ent-license \
   --namespace consul --from-literal=key="<your-license-string>"
 kubectl --context $CLUSTER2_CONTEXT create secret generic consul-ent-license \

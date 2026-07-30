@@ -5,8 +5,8 @@
 # Without this, cluster1's ServiceResolver cannot resolve peer targets
 # and failover will silently fail.
 #
-# The consumer peer name "cluster1" MUST match the PeeringDialer
-# metadata.name on cluster1.
+# The consumer peer name "cluster-01" MUST match the PeeringDialer
+# metadata.name on cluster-01.
 apiVersion: consul.hashicorp.com/v1alpha1
 kind: ExportedServices
 metadata:
@@ -17,6 +17,6 @@ spec:
   services:
     - name: backend
       consumers:
-        # Export backend to the cluster1 peer.
-        # This name must match PeeringDialer.metadata.name on cluster1.
-        - peer: cluster1
+        # Export backend to the cluster-01 peer.
+        # This name must match PeeringDialer.metadata.name on cluster-01.
+        - peer: cluster-01

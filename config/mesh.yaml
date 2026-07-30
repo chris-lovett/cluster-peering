@@ -1,3 +1,11 @@
+# Setup Guide — Step 3: Configure Mesh Gateway Settings
+# Apply to: BOTH clusters
+#
+# Enables cluster peering through mesh gateways. Without this, Consul will
+# attempt direct pod-to-pod connections for cross-cluster traffic, which
+# will not work across separate Kubernetes clusters.
+#
+# There can only be one Mesh resource per cluster. Re-applying is safe (idempotent).
 apiVersion: consul.hashicorp.com/v1alpha1
 kind: Mesh
 metadata:

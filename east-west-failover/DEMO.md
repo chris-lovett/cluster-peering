@@ -95,15 +95,13 @@ Expected — traffic is on the local primary:
 
 ```json
 {
-  "name": "frontend",
-  "upstream_calls": {
-    "http://backend": {
-      "name": "backend (cluster-01 — PRIMARY)",
-      "body": "Primary response from cluster-01"
-    }
-  }
+  "name": "backend",
+  "body": "Hello World",
+  "code": 200
 }
 ```
+
+> The exact response body depends on the sample application image. The key indicator is that the response is returned without error — no `503` or `connection refused`.
 
 ---
 
@@ -176,7 +174,7 @@ source runbook.sh && teardown
 | `wget` returns 503 before failover | `ExportedServices` or `ServiceIntentions` not synced | Run prerequisite checks above; re-apply from `../config/` if needed |
 | Traffic does not shift after scaling to 0 | `ServiceResolver` not synced | Verify `SyncedToConsul: True` on the ServiceResolver — see Step 1 |
 | Traffic stays on cluster-02 after failback | Health check re-registration lag | Wait 15–20 seconds; check `consul catalog services -peer cluster-02` on cluster-01 |
-| `connection refused` from cluster-02 backend | `peer` name mismatch in intentions | Verify `09-intentions-cluster2.yaml` — `peer: cluster1` must exactly match `PeeringDialer.metadata.name` |
+| `connection refused` from cluster-02 backend | `peer` name mismatch in intentions | Verify `09-intentions-cluster2.yaml` — `peer: cluster-01` must exactly match `PeeringDialer.metadata.name` |
 
 For deeper diagnosis, see [troubleshooting.md](../troubleshooting.md).
 

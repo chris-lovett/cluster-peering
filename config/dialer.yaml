@@ -1,3 +1,11 @@
+# Setup Guide — Step 5: Establish the Peering Connection
+# Apply to: cluster-01 (DIALER)
+#
+# PREREQUISITE: The peering-token Secret must already exist in the consul
+# namespace on cluster-01. See setup-guide.md Step 4.
+#
+# The PeeringDialer name ("cluster-01") is used by cluster-02 to identify
+# this peer in ExportedServices and ServiceIntentions resources.
 apiVersion: consul.hashicorp.com/v1alpha1
 kind: PeeringDialer
 metadata:

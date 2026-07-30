@@ -1,7 +1,6 @@
 # Consul Cluster Peering — Setup Guide
 
-**Environment:** Consul Enterprise 2.0.1-ent · OpenShift · Kubernetes CRD-based peering  
-**Last updated:** May 2026
+**Environment:** Consul Enterprise 2.0.1-ent · OpenShift · Kubernetes CRD-based peering
 
 > New to this repo? Start with the [README](README.md) for an architecture overview.  
 > Running into errors? Jump to [troubleshooting.md](troubleshooting.md).
@@ -96,9 +95,9 @@ The following values must all be `true`. If any are missing or set to `false`, u
 | Value | Required | Purpose |
 |---|---|---|
 | `global.peering.enabled` | `true` | Activates the peering CRD controllers |
-| `connectInject.enabled` | `true` | Required for any peering CRD to reconcile — the most common silent failure when missing |
+| `connectInject.enabled` | `true` | Required for any peering CRD to reconcile — the most common missing value |
 | `meshGateway.enabled` | `true` | All cross-cluster traffic routes through the mesh gateway |
-| `meshGateway.wanAddress.source` | `"Service"` | Advertises the LoadBalancer hostname as the WAN address — without this the mesh gateway registers its internal pod IP and remote clusters cannot reach it |
+| `meshGateway.wanAddress.source` | `"Service"` | Advertises the LoadBalancer hostname as WAN address — without this the mesh gateway registers its pod IP and is unreachable from the peer |
 | `meshGateway.wanAddress.port` | `443` | Port exposed by the LoadBalancer Service |
 | `global.acls.manageSystemACLs` | `true` | ACL tokens for peering are managed automatically |
 | `global.tls.enabled` | `true` | Required for mTLS between clusters |
@@ -302,7 +301,7 @@ kubectl --context $CLUSTER2_CONTEXT get serviceintentions -n consul
 
 ## 7. Deploy sample services and verify connectivity
 
-Steps 6 and 7 use the sample `frontend` and `backend` applications in the `app/` directory to confirm the peering is functioning end-to-end. These are lightweight test services — replace them with your own applications once connectivity is confirmed.
+This step uses the sample `frontend` and `backend` applications in the `app/` directory to confirm the peering is functioning end-to-end. These are lightweight test services — replace them with your own applications once connectivity is confirmed.
 
 ### Deploy the sample backend on cluster-02
 
@@ -410,6 +409,32 @@ kubectl --context $CLUSTER1_CONTEXT logs -n consul deployment/consul-mesh-gatewa
 kubectl --context $CLUSTER1_CONTEXT logs -n consul consul-server-0 --tail=100 \
   | grep -i "peer\|grpc\|error"
 ```
+
+---
+
+## Teardown
+
+To remove all resources created by this guide, delete them in reverse order.
+
+```bash
+# cluster-01 — dialer, peering token, sample app
+kubectl --context $CLUSTER1_CONTEXT delete -f config/dialer.yaml       --ignore-not-found
+kubectl --context $CLUSTER1_CONTEXT delete secret peering-token -n consul --ignore-not-found
+kubectl --context $CLUSTER1_CONTEXT delete -f app/frontend.yaml        --ignore-not-found
+kubectl --context $CLUSTER1_CONTEXT delete -f config/mesh.yaml         --ignore-not-found
+kubectl --context $CLUSTER1_CONTEXT delete -f config/proxy-defaults.yaml --ignore-not-found
+
+# cluster-02 — acceptor, exported services, intentions, sample app
+kubectl --context $CLUSTER2_CONTEXT delete -f config/intention.yaml       --ignore-not-found
+kubectl --context $CLUSTER2_CONTEXT delete -f config/exported-service.yaml --ignore-not-found
+kubectl --context $CLUSTER2_CONTEXT delete -f app/backend.yaml             --ignore-not-found
+kubectl --context $CLUSTER2_CONTEXT delete -f config/acceptor.yaml         --ignore-not-found
+kubectl --context $CLUSTER2_CONTEXT delete secret peering-token -n consul  --ignore-not-found
+kubectl --context $CLUSTER2_CONTEXT delete -f config/mesh.yaml             --ignore-not-found
+kubectl --context $CLUSTER2_CONTEXT delete -f config/proxy-defaults.yaml   --ignore-not-found
+```
+
+> Deleting `config/mesh.yaml` and `config/proxy-defaults.yaml` removes global Consul config entries. If other features on your cluster depend on these settings, skip those two commands.
 
 ---
 

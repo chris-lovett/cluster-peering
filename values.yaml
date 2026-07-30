@@ -1,9 +1,9 @@
 global:
   name: consul
-  datacenter: dc1
+  datacenter: dc1          # REPLACE: set to dc1 for cluster-01, dc2 for cluster-02
   image: "hashicorp/consul-enterprise:2.0.1-ent"
   imagePullSecrets:
-    - name: 19261309-openshift-secret-pull-secret
+    - name: 19261309-openshift-secret-pull-secret  # REPLACE: your OpenShift pull secret name
   peering:
     enabled: true
   openshift:
@@ -32,6 +32,9 @@ meshGateway:
     port: 443
 
 server:
+  # NOTE: replicas: 1 is a single-server, non-HA configuration suitable for
+  # development and demonstration only. For production, set replicas: 3 (or 5)
+  # and bootstrapExpect to match.
   replicas: 1
   bootstrapExpect: 1
   disruptionBudget:
@@ -50,8 +53,9 @@ ui:
   metrics:
     enabled: true
     provider: prometheus
-    baseURL: http://prometheus-server.observability.svc.cluster.local
+    baseURL: http://prometheus-server.observability.svc.cluster.local  # REPLACE: your Prometheus service URL
   dashboardURLTemplates:
+    # REPLACE: update with your Grafana hostname and dashboard UID
     service: "https://grafana-observability.apps.rosa.cluster1.6cxo.p3.openshiftapps.com/d/hashicupsnm/consul-service?orgId=1&var-service={{Service.Name}}&var-namespace={{Service.Namespace}}&var-dc={{Datacenter}}"
 
 connectInject:
@@ -63,8 +67,8 @@ connectInject:
     enabled: true
     logLevel: info
     multus: true
-    cniBinDir: /var/lib/cni/bin
-    cniNetDir: /etc/kubernetes/cni/net.d
+    cniBinDir: /var/lib/cni/bin   # REPLACE: verify CNI bin path matches your OpenShift node configuration
+    cniNetDir: /etc/kubernetes/cni/net.d  # REPLACE: verify CNI net.d path matches your OpenShift node configuration
   transparentProxy:
     defaultEnabled: true
   apiGateway:

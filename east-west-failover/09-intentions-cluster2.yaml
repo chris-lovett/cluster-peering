@@ -20,7 +20,7 @@ spec:
       # the only permitted path to backend.
       action: deny
     - name: frontend
-      # Allow only the frontend service from the cluster1 peer.
-      # "peer" must match PeeringDialer.metadata.name on cluster1.
+      # Allow only the frontend service from the cluster-01 peer.
+      # "peer" must match PeeringDialer.metadata.name on cluster-01.
       action: allow
-      peer: cluster1
+      peer: cluster-01

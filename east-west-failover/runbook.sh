@@ -136,7 +136,7 @@ EOF
   c1 apply -f "${DIR}/04-dialer-cluster1.yaml"
 
     echo "⏳ Waiting for peering dialer to report Synced=True..."
-    until c1 get peeringdialers cluster1 -n "${CONSUL_NS}" \
+    until c1 get peeringdialers cluster-01 -n "${CONSUL_NS}" \
       -o jsonpath='{.status.conditions[?(@.type=="Synced")].status}' 2>/dev/null \
       | grep -q "True"; do
     sleep 3
@@ -331,20 +331,28 @@ teardown() {
 }
 
 # =============================================================================
-# MAIN — Run all phases end-to-end
+# MAIN — Run post-setup phases only
+#
+# PREREQUISITE: Cluster peering must already be ACTIVE (setup-guide.md complete).
+# This script assumes:
+#   - PeeringDialer and PeeringAcceptor are SYNCED on both clusters
+#   - Mesh and ProxyDefaults CRDs are already applied
+#   - Sample services (frontend, backend) may already be deployed
+#
+# To run the full setup including peering establishment, call each phase
+# function individually: preflight_controller, phase1_mesh, phase2_peering,
+# phase3_services, phase4_intentions — then run this script.
 # =============================================================================
 main() {
   echo
   echo "Consul Cluster Peering — East-West Failover Demo"
-  echo "  cluster1 context : ${CONTEXT_C1}"
-  echo "  cluster2 context : ${CONTEXT_C2}"
+  echo "  cluster-01 context : ${CONTEXT_C1}"
+  echo "  cluster-02 context : ${CONTEXT_C2}"
+  echo
+  echo "Assumes cluster peering is already ACTIVE. See setup-guide.md if not."
   echo
 
   preflight_controller
-  phase1_mesh
-  phase2_peering
-  phase3_services
-  phase4_intentions
   phase5_resolver
   phase6_verify
 

@@ -1,4 +1,12 @@
-# Service to expose backend
+# Setup Guide — Step 7: Deploy Sample Services
+# Apply to: cluster-02 (ACCEPTOR)
+#
+# Deploys the backend sample service (nicholasjackson/fake-service) for
+# cross-cluster connectivity verification. This is a lightweight test service —
+# replace with your own application once peering is confirmed working.
+#
+# The connect-inject annotation triggers Envoy sidecar injection.
+# The pod will show 2/2 containers when Consul injection is working correctly.
 apiVersion: v1
 kind: Service
 metadata:

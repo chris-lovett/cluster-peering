@@ -25,6 +25,6 @@ spec:
     # Use a named subset key here to scope failover to a specific deployment group.
     "*":
       targets:
-        - peer: cluster2        # Must match PeeringAcceptor.metadata.name on cluster2
+        - peer: cluster-02      # Must match PeeringAcceptor.metadata.name on cluster-02
           service: backend        # Service name in the remote peer's catalog
           namespace: default      # Namespace of the service in the remote peer

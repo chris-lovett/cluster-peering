@@ -9,12 +9,12 @@
 apiVersion: consul.hashicorp.com/v1alpha1
 kind: PeeringDialer
 metadata:
-  # This name identifies the peering from cluster1's perspective AND is the
-  # name that cluster2 uses to reference cluster1 in peer-aware configs:
+  # This name identifies the peering from cluster-01's perspective AND is the
+  # name that cluster-02 uses to reference cluster-01 in peer-aware configs:
   #   - ExportedServices.spec.services[].consumers[].peer
   #   - ServiceIntentions.spec.sources[].peer
-  # Both must reference "cluster1" (this value) to match.
-  name: cluster1
+  # Both must reference "cluster-01" (this value) to match.
+  name: cluster-01
   namespace: consul
 spec:
   peer:

@@ -1,3 +1,11 @@
+# Setup Guide — Step 3: Configure Mesh Gateway Settings
+# Apply to: BOTH clusters
+#
+# Sets the default mesh gateway mode for all Envoy sidecars to "local".
+# This tells each sidecar to route cross-cluster traffic through the local
+# mesh gateway rather than attempting a direct connection to the remote cluster.
+#
+# The name must be "global" — this is a singleton config entry.
 apiVersion: consul.hashicorp.com/v1alpha1
 kind: ProxyDefaults
 metadata:
