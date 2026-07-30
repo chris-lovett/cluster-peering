@@ -42,7 +42,7 @@ cluster peering boundary. `frontend` on **cluster1** calls a local `backend`
 
 | Requirement | Details |
 |---|---|
-| Consul Enterprise | `1.22.3-ent` installed via Helm on both clusters |
+| Consul Enterprise | `2.0.1-ent` installed via Helm on both clusters |
 | Helm values | `global.peering.enabled: true`, `meshGateway.enabled: true`, `connectInject.transparentProxy.defaultEnabled: true` |
 | kubectl contexts | Two contexts configured: one for each cluster |
 | ACLs | Enabled (`global.acls.manageSystemACLs: true`) — token is auto-managed by the controller |

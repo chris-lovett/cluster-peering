@@ -2,7 +2,7 @@
 
 Cluster peering connects independent Consul clusters so services in different datacenters or cloud environments can communicate securely — without sharing a root CA or merging administrative control.
 
-**Environment:** Consul Enterprise 1.22.3-ent · OpenShift · Kubernetes CRD-based peering
+**Environment:** Consul Enterprise 2.0.1-ent · OpenShift · Kubernetes CRD-based peering
 
 ---
 

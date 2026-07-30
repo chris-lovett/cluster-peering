@@ -1,6 +1,6 @@
 # Consul Cluster Peering — Troubleshooting Guide
 
-**Environment:** Consul Enterprise 1.22.3-ent · OpenShift · Kubernetes CRD-based peering
+**Environment:** Consul Enterprise 2.0.1-ent · OpenShift · Kubernetes CRD-based peering
 
 > This document is the companion to [CLUSTER_PEERING_SETUP_GUIDE.md](CLUSTER_PEERING_SETUP_GUIDE.md).  
 > Each issue below links back to the relevant setup step.
@@ -30,7 +30,7 @@ Verify every item below **before** applying any peering CRDs. Most activation fa
 ```bash
 export CLUSTER1_CONTEXT=<context for cluster-01>
 export CLUSTER2_CONTEXT=<context for cluster-02>
-export CONSUL_VERSION=1.22.3-ent
+export CONSUL_VERSION=2.0.1-ent
 export HELM_RELEASE_NAME1=cluster-01
 export HELM_RELEASE_NAME2=cluster-02
 ```

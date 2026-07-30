@@ -2,7 +2,7 @@
 # =============================================================================
 # runbook.sh — Consul Cluster Peering: East-West Failover Demo
 # Audience: Platform Engineers
-# Consul: Enterprise 1.22.3-ent | Platform: OpenShift / Kubernetes
+# Consul: Enterprise 2.0.1-ent | Platform: OpenShift / Kubernetes
 # =============================================================================
 # Usage:
 #   chmod +x runbook.sh
