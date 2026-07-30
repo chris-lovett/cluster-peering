@@ -279,6 +279,8 @@ kubectl --context $CLUSTER2_CONTEXT apply -f config/exported-service.yaml
 
 The `peer: cluster-01` value in this file references the `metadata.name` of the `PeeringDialer` on cluster-01. These must match exactly.
 
+> **Note:** The sample config exports a single named service. Production deployments commonly export by namespace or use multiple service entries to expose an entire tier at once. See the [ExportedServices CRD reference](https://developer.hashicorp.com/consul/docs/k8s/crds/exported-services) for the full schema.
+
 ### Allow the traffic
 
 Consul enforces default-deny on all cross-cluster traffic. Apply `config/intention.yaml` to cluster-02 to explicitly allow `frontend` on cluster-01 to reach `backend`:

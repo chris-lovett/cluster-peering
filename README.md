@@ -35,7 +35,8 @@ All cross-cluster traffic flows through a **mesh gateway** on each side. The gat
   │  └──────────────────────┘  │               │  └──────────────────────┘  │
   │                            │               │                             │
   │  namespace: default        │               │  namespace: default         │
-  │  frontend                  │               │  backend  (exported)        │
+  │  frontend  (sample app)    │               │  backend  (sample app,      │
+  │                            │               │            exported)        │
   └────────────────────────────┘               └────────────────────────────┘
 ```
 

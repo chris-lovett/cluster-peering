@@ -4,6 +4,13 @@
 
 > Companion to [setup-guide.md](setup-guide.md). Each section maps to a specific failure mode with exact reproduction steps and remediation commands.
 
+Set these variables in every terminal session before running commands from this guide:
+
+```bash
+export CLUSTER1_CONTEXT=<kubectl context for cluster-01>
+export CLUSTER2_CONTEXT=<kubectl context for cluster-02>
+```
+
 ---
 
 ## Table of contents
