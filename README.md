@@ -8,15 +8,13 @@ This repo contains the Helm configuration, Consul CRDs, and sample application m
 
 ---
 
-## Where to start
+## Getting started
 
-If you are setting up peering for the first time, follow the **[Setup Guide](setup-guide.md)** in order. It will walk you through every step with inline verification checkpoints. When something goes wrong, the **[Troubleshooting Guide](troubleshooting.md)** covers every known failure mode with exact remediation commands.
+**[setup-guide.md](setup-guide.md)** walks through every step from Helm install to verified cross-cluster communication. Follow it in order — each step has an inline verification checkpoint before you move on.
 
-| Document | Purpose |
-|---|---|
-| [setup-guide.md](setup-guide.md) | Step-by-step installation from Helm install through verified cross-cluster communication |
-| [troubleshooting.md](troubleshooting.md) | Issue-by-issue diagnosis and remediation for pre-activation and activation failures |
-| [east-west-failover/DEMO.md](east-west-failover/DEMO.md) | Runnable demo showing automatic east-west traffic failover across the peering boundary |
+Once peering is established, **[east-west-failover/DEMO.md](east-west-failover/DEMO.md)** lets you validate the setup with a realistic two-service application. It simulates a primary outage and confirms that traffic automatically fails over to the peer cluster — a good confidence check before using peering in production.
+
+If something goes wrong at any point, **[troubleshooting.md](troubleshooting.md)** covers every known failure mode with exact diagnosis steps and remediation commands.
 
 ---
 
@@ -44,34 +42,6 @@ All cross-cluster traffic flows through a **mesh gateway** on each side. The gat
 The **acceptor** (cluster-02) generates a single-use peering token. The **dialer** (cluster-01) uses that token to initiate the connection. Once the peering is `ACTIVE`, cluster-02 can export services and cluster-01 can resolve them — but only after explicit `ExportedServices` and `ServiceIntentions` resources allow it. Consul's default is deny.
 
 The peer name each side uses to reference the other is set by `metadata.name` on the `PeeringAcceptor` and `PeeringDialer` CRDs. Every downstream resource — `ExportedServices`, `ServiceIntentions`, `ServiceResolver` — must use these names exactly.
-
----
-
-## Repository contents
-
-### Helm configuration
-
-| File | Purpose |
-|---|---|
-| [`values.yaml`](values.yaml) | Complete Helm values for Consul Enterprise 2.0.1-ent on OpenShift |
-
-### Consul CRDs — apply in this order
-
-| File | Cluster | What it does |
-|---|---|---|
-| [`mesh.yaml`](mesh.yaml) | Both | Enables `peerThroughMeshGateways: true` |
-| [`proxy-defaults.yaml`](proxy-defaults.yaml) | Both | Sets all proxies to route cross-cluster traffic via the local mesh gateway |
-| [`acceptor.yaml`](acceptor.yaml) | cluster-02 | Creates the peering endpoint and generates the peering token |
-| [`dialer.yaml`](dialer.yaml) | cluster-01 | Initiates the peering connection using the token |
-| [`exported-service.yaml`](exported-service.yaml) | cluster-02 | Makes `backend` discoverable by cluster-01 |
-| [`intention.yaml`](intention.yaml) | cluster-02 | Allows `frontend` on cluster-01 to reach `backend` on cluster-02 |
-
-### Sample application
-
-| File | Cluster | What it does |
-|---|---|---|
-| [`backend.yaml`](backend.yaml) | cluster-02 | The service being exported across the peering |
-| [`frontend.yaml`](frontend.yaml) | cluster-01 | Calls `backend` across the peering using virtual DNS |
 
 ---
 
