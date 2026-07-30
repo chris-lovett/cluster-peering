@@ -4,7 +4,7 @@
 **Last updated:** May 2026
 
 > New to this repo? Start with the [README](README.md) for an architecture overview and file index.  
-> Running into errors? Jump to [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+> Running into errors? Jump to [troubleshooting.md](troubleshooting.md).
 
 ---
 
@@ -56,7 +56,7 @@ kubectl --context $CLUSTER2_CONTEXT create secret generic consul-ent-license \
   --namespace consul --from-literal=key="<your-license-string>"
 ```
 
-The image pull secret (`19261309-openshift-secret-pull-secret`) referenced in `values.yaml` must also exist in the `consul` namespace on both clusters before installation. Create it from your HashiCorp entitlement credentials. See [TROUBLESHOOTING.md — OpenShift-Specific Issues](TROUBLESHOOTING.md#8-openshift-specific-issues) if pods end up in `ImagePullBackOff`.
+The image pull secret (`19261309-openshift-secret-pull-secret`) referenced in `values.yaml` must also exist in the `consul` namespace on both clusters before installation. Create it from your HashiCorp entitlement credentials. See [troubleshooting.md — OpenShift-Specific Issues](troubleshooting.md#8-openshift-specific-issues) if pods end up in `ImagePullBackOff`.
 
 ### Understand the required Helm values
 
@@ -110,7 +110,7 @@ helm install $HELM_RELEASE_NAME2 hashicorp/consul \
   --kube-context $CLUSTER2_CONTEXT
 ```
 
-> **cluster-01 must use `dc1` and cluster-02 must use `dc2`.** These names cannot be the same and cannot be swapped. Mismatched datacenter names cause ProxyDefaults and Mesh CRDs to fail sync with a `config entry managed in different datacenter` error. See [TROUBLESHOOTING.md — ProxyDefaults Datacenter Mismatch](TROUBLESHOOTING.md#5-proxydefaults-datacenter-mismatch).
+> **cluster-01 must use `dc1` and cluster-02 must use `dc2`.** These names cannot be the same and cannot be swapped. Mismatched datacenter names cause ProxyDefaults and Mesh CRDs to fail sync with a `config entry managed in different datacenter` error. See [troubleshooting.md — ProxyDefaults Datacenter Mismatch](troubleshooting.md#5-proxydefaults-datacenter-mismatch).
 
 ### Verify the installation and control plane health
 
@@ -141,7 +141,7 @@ kubectl --context $CLUSTER1_CONTEXT get crd \
   serviceresolvers.consul.hashicorp.com
 ```
 
-If any CRD is missing or a deployment is not ready, see [TROUBLESHOOTING.md — CRDs Apply but Never Reconcile](TROUBLESHOOTING.md#3-crds-apply-but-never-reconcile).
+If any CRD is missing or a deployment is not ready, see [troubleshooting.md — CRDs Apply but Never Reconcile](troubleshooting.md#3-crds-apply-but-never-reconcile).
 
 ---
 
@@ -171,7 +171,7 @@ kubectl --context $CLUSTER2_CONTEXT get mesh mesh -n consul \
 # Expected: True
 ```
 
-If `SyncedToConsul` is not `True`, the control plane is not healthy. See [TROUBLESHOOTING.md — CRDs Apply but Never Reconcile](TROUBLESHOOTING.md#3-crds-apply-but-never-reconcile).
+If `SyncedToConsul` is not `True`, the control plane is not healthy. See [troubleshooting.md — CRDs Apply but Never Reconcile](troubleshooting.md#3-crds-apply-but-never-reconcile).
 
 ---
 
@@ -179,7 +179,7 @@ If `SyncedToConsul` is not `True`, the control plane is not healthy. See [TROUBL
 
 The acceptor cluster (cluster-02) generates a single-use token that the dialer will use to authenticate the connection. This token is stored as a Kubernetes Secret.
 
-> **The peering token is single-use.** Deleting and re-applying `acceptor.yaml` generates a new token and permanently invalidates the previous one. If a dialer has already been applied using the old token, the full peering state must be reset before retrying. See [TROUBLESHOOTING.md — Reset Corrupted Peering State](TROUBLESHOOTING.md#7-reset-corrupted-peering-state).
+> **The peering token is single-use.** Deleting and re-applying `acceptor.yaml` generates a new token and permanently invalidates the previous one. If a dialer has already been applied using the old token, the full peering state must be reset before retrying. See [troubleshooting.md — Reset Corrupted Peering State](troubleshooting.md#7-reset-corrupted-peering-state).
 
 Apply the acceptor on cluster-02:
 
@@ -247,7 +247,7 @@ kubectl --context $CLUSTER1_CONTEXT exec -n consul consul-server-0 \
 # Expected: State: ACTIVE
 ```
 
-If `SYNCED` is not `True` or `State` is not `ACTIVE`, see [TROUBLESHOOTING.md — Peering Stuck in Pending](TROUBLESHOOTING.md#2-peering-stuck-in-pending).
+If `SYNCED` is not `True` or `State` is not `ACTIVE`, see [troubleshooting.md — Peering Stuck in Pending](troubleshooting.md#2-peering-stuck-in-pending).
 
 ---
 

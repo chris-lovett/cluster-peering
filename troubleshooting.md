@@ -2,7 +2,7 @@
 
 **Environment:** Consul Enterprise 2.0.1-ent · OpenShift · Kubernetes CRD-based peering
 
-> Companion to [CLUSTER_PEERING_SETUP_GUIDE.md](CLUSTER_PEERING_SETUP_GUIDE.md). Each section maps to a specific failure mode with exact reproduction steps and remediation commands.
+> Companion to [setup-guide.md](setup-guide.md). Each section maps to a specific failure mode with exact reproduction steps and remediation commands.
 
 ---
 
@@ -320,7 +320,7 @@ sleep 30
 kubectl --context $CLUSTER2_CONTEXT apply -f acceptor.yaml
 ```
 
-Once the new token Secret is populated on cluster-02, copy it to cluster-01 and re-apply the dialer, following [Setup Guide steps 4 and 5](CLUSTER_PEERING_SETUP_GUIDE.md#4-generate-the-peering-token).
+Once the new token Secret is populated on cluster-02, copy it to cluster-01 and re-apply the dialer, following [Setup Guide steps 4 and 5](setup-guide.md#4-generate-the-peering-token).
 
 ---
 

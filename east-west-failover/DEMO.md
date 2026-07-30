@@ -291,7 +291,7 @@ Once the pod passes its health check and re-registers with Consul, traffic autom
 | Traffic stays on cluster-02 after failback | Health check re-registration lag | Wait 15–20 seconds; check `consul catalog services -peer cluster-02` on cluster-01 |
 | Mesh gateway not reachable | LoadBalancer Service has no external IP | Verify `kubectl get svc consul-mesh-gateway -n consul` shows an external hostname |
 
-For deeper diagnosis, see [TROUBLESHOOTING.md](../TROUBLESHOOTING.md).
+For deeper diagnosis, see [troubleshooting.md](../troubleshooting.md).
 
 ---
 

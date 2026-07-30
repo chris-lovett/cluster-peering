@@ -10,12 +10,12 @@ This repo contains the Helm configuration, Consul CRDs, and sample application m
 
 ## Where to start
 
-If you are setting up peering for the first time, follow the **[Setup Guide](CLUSTER_PEERING_SETUP_GUIDE.md)** in order. It will walk you through every step with inline verification checkpoints. When something goes wrong, the **[Troubleshooting Guide](TROUBLESHOOTING.md)** covers every known failure mode with exact remediation commands.
+If you are setting up peering for the first time, follow the **[Setup Guide](setup-guide.md)** in order. It will walk you through every step with inline verification checkpoints. When something goes wrong, the **[Troubleshooting Guide](troubleshooting.md)** covers every known failure mode with exact remediation commands.
 
 | Document | Purpose |
 |---|---|
-| [CLUSTER_PEERING_SETUP_GUIDE.md](CLUSTER_PEERING_SETUP_GUIDE.md) | Step-by-step installation from Helm install through verified cross-cluster communication |
-| [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Issue-by-issue diagnosis and remediation for pre-activation and activation failures |
+| [setup-guide.md](setup-guide.md) | Step-by-step installation from Helm install through verified cross-cluster communication |
+| [troubleshooting.md](troubleshooting.md) | Issue-by-issue diagnosis and remediation for pre-activation and activation failures |
 | [east-west-failover/DEMO.md](east-west-failover/DEMO.md) | Runnable demo showing automatic east-west traffic failover across the peering boundary |
 
 ---
