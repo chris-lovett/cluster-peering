@@ -1,257 +1,233 @@
-# Consul Cluster Peering: East-West Service Failover
+# East-West Service Failover Demo
 
-Two-cluster Consul Enterprise demo showing east-west traffic failover across a
-cluster peering boundary. `frontend` on **cluster1** calls a local `backend`
-(primary). A `ServiceResolver` automatically redirects traffic to `backend` on
-**cluster2** (failover target) when the local instance becomes unhealthy.
+**Environment:** Consul Enterprise 2.0.1-ent · OpenShift · Kubernetes CRD-based peering
+
+This demo shows automatic east-west traffic failover across a cluster peering boundary. Under normal conditions, `frontend` on cluster-01 calls a local `backend` (the primary). When the primary becomes unhealthy, a `ServiceResolver` on cluster-01 automatically redirects traffic to `backend` on cluster-02 (the failover target) — no application changes, no manual intervention.
 
 ---
 
 ## Topology
 
 ```
-  cluster1  (DIALER)                  cluster2  (ACCEPTOR)
-  ┌────────────────────────────┐         ┌──────────────────────────────┐
-  │  namespace: default        │         │  namespace: default           │
-  │                            │         │                               │
-  │  ┌──────────┐              │         │  ┌───────────────────────┐    │
-  │  │ frontend │              │         │  │ backend               │    │
-  │  └────┬─────┘              │         │  │ (FAILOVER target)     │    │
-  │       │ http://backend     │         │  └───────────────────────┘    │
-  │  ┌────▼─────────────────┐  │         │                               │
-  │  │ backend  (PRIMARY)   │  │         │                               │
-  │  └──────────────────────┘  │         │                               │
-  │                            │         │                               │
-  │  ServiceResolver           │         │  ExportedServices             │
-  │  failover → cluster2     │         │  backend → peer: cluster1   │
-  │                            │         │                               │
-  │  ┌─────────────────────┐   │  mTLS   │  ┌─────────────────────┐     │
-  │  │   mesh gateway      │◄──┼─────────┼──│   mesh gateway      │     │
-  │  └─────────────────────┘   │         │  └─────────────────────┘     │
-  │  PeeringDialer              │         │  PeeringAcceptor              │
-  │  name: cluster1           │         │  name: cluster2             │
-  └────────────────────────────┘         └──────────────────────────────┘
+  cluster-01  (DIALER)                      cluster-02  (ACCEPTOR)
+  ┌──────────────────────────────┐               ┌──────────────────────────────┐
+  │  namespace: default          │               │  namespace: default           │
+  │                              │               │                               │
+  │  ┌──────────┐                │               │  ┌────────────────────────┐   │
+  │  │ frontend │                │               │  │ backend                │   │
+  │  └────┬─────┘                │               │  │ (FAILOVER target)      │   │
+  │       │ http://backend       │               │  └────────────────────────┘   │
+  │  ┌────▼──────────────────┐   │               │                               │
+  │  │ backend  (PRIMARY)    │   │               │  ExportedServices             │
+  │  └───────────────────────┘   │               │  backend → peer: cluster-01   │
+  │                              │               │                               │
+  │  ServiceResolver             │               │  ServiceIntentions            │
+  │  failover → cluster-02       │               │  frontend@cluster-01 → allow  │
+  │                              │               │                               │
+  │  ┌────────────────────────┐  │  mTLS / 443   │  ┌────────────────────────┐   │
+  │  │     mesh-gateway       │◄─┼───────────────┼──│     mesh-gateway       │   │
+  │  └────────────────────────┘  │               │  └────────────────────────┘   │
+  │  PeeringDialer: cluster-01   │               │  PeeringAcceptor: cluster-02  │
+  └──────────────────────────────┘               └──────────────────────────────┘
 
-  Normal path:    frontend → backend (cluster1 PRIMARY)
-  Failover path:  frontend → backend (cluster2 FAILOVER, via mesh gateway)
+  Normal path:   frontend → backend (cluster-01 PRIMARY)
+  Failover path: frontend → backend (cluster-02 FAILOVER, via mesh gateway)
 ```
 
 ---
 
 ## Prerequisites
 
-| Requirement | Details |
+Consul must already be installed and healthy on both clusters before running this demo. The peering connection does not need to exist yet — this demo establishes it.
+
+| Requirement | Expected state |
 |---|---|
 | Consul Enterprise | `2.0.1-ent` installed via Helm on both clusters |
-| Helm values | `global.peering.enabled: true`, `meshGateway.enabled: true`, `connectInject.transparentProxy.defaultEnabled: true` |
-| kubectl contexts | Two contexts configured: one for each cluster |
-| ACLs | Enabled (`global.acls.manageSystemACLs: true`) — token is auto-managed by the controller |
-| TLS | Enabled (`global.tls.enabled: true`) |
-| OpenShift | CNI Multus configured (`connectInject.cni.multus: true`) |
-| Namespace | `consul` namespace exists on both clusters |
+| Peering enabled | `global.peering.enabled: true` in Helm values |
+| Mesh gateway | `meshGateway.enabled: true`, LoadBalancer Service has an external IP |
+| Transparent proxy | `connectInject.transparentProxy.defaultEnabled: true` |
+| ACLs | `global.acls.manageSystemACLs: true` |
+| TLS | `global.tls.enabled: true` |
+| OpenShift CNI | `connectInject.cni.multus: true` |
 
-Verify Consul is running before starting:
+Set your kubectl context names before running any commands:
 
 ```bash
-# cluster1
-kubectl --context=cluster1 get pods -n consul
-# Expected: consul-server-0, consul-mesh-gateway-*, consul-connect-injector-* all Running
-
-# cluster2
-kubectl --context=cluster2 get pods -n consul
-# Expected: same
+export CONTEXT_C1=<kubectl context for cluster-01>
+export CONTEXT_C2=<kubectl context for cluster-02>
 ```
 
-Verify the Consul Kubernetes control plane is healthy before applying peering CRDs:
+Verify the Consul control plane is healthy on both clusters before continuing:
 
 ```bash
-kubectl --context=cluster1 get deploy consul-connect-injector consul-webhook-cert-manager -n consul
-kubectl --context=cluster2 get deploy consul-connect-injector consul-webhook-cert-manager -n consul
-
-kubectl --context=cluster1 rollout status deployment/consul-connect-injector -n consul
-kubectl --context=cluster1 rollout status deployment/consul-webhook-cert-manager -n consul
-kubectl --context=cluster2 rollout status deployment/consul-connect-injector -n consul
-kubectl --context=cluster2 rollout status deployment/consul-webhook-cert-manager -n consul
+kubectl --context $CONTEXT_C1 rollout status deployment/consul-connect-injector    -n consul
+kubectl --context $CONTEXT_C1 rollout status deployment/consul-webhook-cert-manager -n consul
+kubectl --context $CONTEXT_C2 rollout status deployment/consul-connect-injector    -n consul
+kubectl --context $CONTEXT_C2 rollout status deployment/consul-webhook-cert-manager -n consul
 ```
 
 ---
 
-## Quick Start (automated)
+## Quick start (automated)
+
+The `runbook.sh` script runs all setup phases end-to-end and leaves the environment in a state ready for the failover demo:
 
 ```bash
-# Set your kubectl context names
-export CONTEXT_C1=cluster1   # replace with your actual context name
-export CONTEXT_C2=cluster2
-
 chmod +x runbook.sh
-./runbook.sh
+CONTEXT_C1=<your-cluster1-context> CONTEXT_C2=<your-cluster2-context> ./runbook.sh
 ```
 
-Then jump to [Demo: Trigger Failover](#demo-trigger-failover).
+Once the script completes, skip to [Trigger the failover](#trigger-the-failover).
+
+Individual phases can also be run by sourcing the script and calling the function directly:
+
+```bash
+source runbook.sh
+phase2_peering      # establish peering only
+phase4_intentions   # apply exported services and intentions only
+```
 
 ---
 
-## Step-by-Step Walkthrough
+## Step-by-step walkthrough
 
-### Phase 1 — Mesh Gateway Config
+### Phase 1 — Configure mesh gateways
 
-Enable mesh gateway peering on both clusters. Both must be configured before
-establishing a peering connection.
+Both clusters must have matching mesh gateway configuration before a peering connection can be established.
 
 ```bash
-kubectl --context=cluster1 apply -f 01-mesh-cluster1.yaml
-kubectl --context=cluster2 apply -f 02-mesh-cluster2.yaml
+kubectl --context $CONTEXT_C1 apply -f 01-mesh-cluster1.yaml
+kubectl --context $CONTEXT_C2 apply -f 02-mesh-cluster2.yaml
 ```
 
-Verify sync (expect `True`):
+Verify sync on cluster-01 before continuing:
 
 ```bash
-kubectl --context=cluster1 get mesh mesh -n consul \
+kubectl --context $CONTEXT_C1 get mesh mesh -n consul \
   -o jsonpath='{.status.conditions[?(@.type=="SyncedToConsul")].status}'
-# Expected output: True
+# Expected: True
 ```
 
----
+### Phase 2 — Establish the peering
 
-### Phase 2 — Establish Cluster Peering
-
-#### 2a — Create the Acceptor (cluster2)
+**2a. Apply the acceptor on cluster-02.** The controller generates a one-time peering token and stores it as a Kubernetes Secret.
 
 ```bash
-kubectl --context=cluster2 apply -f 03-acceptor-cluster2.yaml
+kubectl --context $CONTEXT_C2 apply -f 03-acceptor-cluster2.yaml
+
+# Wait for the token Secret to be populated
+kubectl --context $CONTEXT_C2 get secret peering-token -n consul -w
+# Wait until the DATA column shows a value
 ```
 
-The controller generates a one-time peering token and stores it as a Kubernetes
-Secret. Wait for it:
+**2b. Copy the token to cluster-01.** The token must exist in the `consul` namespace on cluster-01 before the dialer is applied. This command is idempotent:
 
 ```bash
-kubectl --context=cluster2 get secret peering-token -n consul -w
-# Wait until DATA column shows a value (not <none>)
-```
-
-#### 2b — Copy the Token to cluster1
-
-The token must exist in the `consul` namespace on cluster1 **before** the
-Dialer is applied. The `--dry-run=client` approach is idempotent:
-
-```bash
-TOKEN=$(kubectl --context=cluster2 \
+TOKEN=$(kubectl --context $CONTEXT_C2 \
   get secret peering-token -n consul -o jsonpath='{.data.data}')
 
-kubectl --context=cluster1 create secret generic peering-token \
+kubectl --context $CONTEXT_C1 create secret generic peering-token \
   --namespace=consul \
   --from-literal=data="${TOKEN}" \
-  --dry-run=client -o yaml | kubectl --context=cluster1 apply -f -
+  --dry-run=client -o yaml | kubectl --context $CONTEXT_C1 apply -f -
 ```
 
-#### 2c — Create the Dialer (cluster1)
+**2c. Apply the dialer on cluster-01.** This initiates the connection:
 
 ```bash
-kubectl --context=cluster1 apply -f 04-dialer-cluster1.yaml
+kubectl --context $CONTEXT_C1 apply -f 04-dialer-cluster1.yaml
 ```
 
-Verify peering is ACTIVE (may take 15–30 seconds):
+Verify both sides show `SYNCED: True` (allow 15–30 seconds):
 
 ```bash
-kubectl --context=cluster1 get peeringdialers -n consul
-# Expected:
-#   NAME         SYNCED   LAST SYNCED   AGE
-#   cluster1   True     10s           30s
+kubectl --context $CONTEXT_C1 get peeringdialers  -n consul
+# Expected: cluster-01   True
 
-kubectl --context=cluster2 get peeringacceptors -n consul
-# Expected:
-#   NAME         SYNCED   LAST SYNCED   AGE
-#   cluster2   True     10s           2m
+kubectl --context $CONTEXT_C2 get peeringacceptors -n consul
+# Expected: cluster-02   True
 ```
 
----
-
-### Phase 3 — Deploy Services
+### Phase 3 — Deploy services
 
 ```bash
-# Failover target on cluster2
-kubectl --context=cluster2 apply -f 05-backend-cluster2.yaml
+# Failover target — backend on cluster-02
+kubectl --context $CONTEXT_C2 apply -f 05-backend-cluster2.yaml
 
-# Primary backend on cluster1
-kubectl --context=cluster1 apply -f 06-backend-cluster1.yaml
+# Primary — backend on cluster-01
+kubectl --context $CONTEXT_C1 apply -f 06-backend-cluster1.yaml
 
-# Frontend on cluster1 (calls http://backend — transparent proxy handles routing)
-kubectl --context=cluster1 apply -f 07-frontend-cluster1.yaml
+# Frontend on cluster-01 (calls http://backend via transparent proxy)
+kubectl --context $CONTEXT_C1 apply -f 07-frontend-cluster1.yaml
 ```
 
-Wait for pods:
+Wait for all pods to be ready (`2/2` means both the app container and Envoy sidecar are running):
 
 ```bash
-kubectl --context=cluster1 get pods -n default -w
-# Expected: frontend-*, backend-* both Running 2/2 (app + envoy sidecar)
+kubectl --context $CONTEXT_C1 get pods -n default -w
+# Expected: frontend-* and backend-* both Running 2/2
 
-kubectl --context=cluster2 get pods -n default -w
+kubectl --context $CONTEXT_C2 get pods -n default -w
 # Expected: backend-* Running 2/2
 ```
 
----
+### Phase 4 — Export services and set intentions
 
-### Phase 4 — Exported Services & Intentions
-
-#### Export backend from cluster2 to cluster1
+Export `backend` from cluster-02 to cluster-01:
 
 ```bash
-kubectl --context=cluster2 apply -f 08-exported-services-cluster2.yaml
+kubectl --context $CONTEXT_C2 apply -f 08-exported-services-cluster2.yaml
 ```
 
-#### Allow only frontend@cluster1 to reach backend@cluster2
+Allow `frontend` on cluster-01 to reach `backend` on cluster-02:
 
 ```bash
-kubectl --context=cluster2 apply -f 09-intentions-cluster2.yaml
+kubectl --context $CONTEXT_C2 apply -f 09-intentions-cluster2.yaml
 ```
 
-Verify:
+Verify both are synced:
 
 ```bash
-kubectl --context=cluster2 get serviceintentions backend -n consul \
+kubectl --context $CONTEXT_C2 get exportedservices  -n consul
+kubectl --context $CONTEXT_C2 get serviceintentions -n consul
+# Both SYNCED columns should show True
+```
+
+### Phase 5 — Apply the failover policy
+
+```bash
+kubectl --context $CONTEXT_C1 apply -f 10-service-resolver-cluster1.yaml
+```
+
+Verify it has synced:
+
+```bash
+kubectl --context $CONTEXT_C1 get serviceresolver backend -n default \
   -o jsonpath='{.status.conditions[?(@.type=="SyncedToConsul")].status}'
 # Expected: True
 ```
 
----
+### Phase 6 — Verify baseline traffic
 
-### Phase 5 — Failover Policy
-
-```bash
-kubectl --context=cluster1 apply -f 10-service-resolver-cluster1.yaml
-```
-
-Verify:
+Confirm that requests are hitting the **local primary** before triggering failover:
 
 ```bash
-kubectl --context=cluster1 get serviceresolver backend -n default \
-  -o jsonpath='{.status.conditions[?(@.type=="SyncedToConsul")].status}'
-# Expected: True
-```
-
----
-
-### Phase 6 — Verify Baseline Traffic
-
-Confirm requests hit the **local primary** before triggering failover:
-
-```bash
-FRONTEND_POD=$(kubectl --context=cluster1 \
+FRONTEND_POD=$(kubectl --context $CONTEXT_C1 \
   get pod -n default -l app=frontend -o jsonpath='{.items[0].metadata.name}')
 
-kubectl --context=cluster1 exec -n default "${FRONTEND_POD}" -c frontend -- \
+kubectl --context $CONTEXT_C1 exec -n default "${FRONTEND_POD}" -c frontend -- \
   wget -qO- http://backend
 ```
 
-Expected response body:
+Expected — the upstream name confirms traffic is on the local primary:
 
 ```json
 {
   "name": "frontend",
   "upstream_calls": {
     "http://backend": {
-      "name": "backend (cluster1 — PRIMARY)",
-      "body": "Primary response from cluster1"
+      "name": "backend (cluster-01 — PRIMARY)",
+      "body": "Primary response from cluster-01"
     }
   }
 }
@@ -259,103 +235,102 @@ Expected response body:
 
 ---
 
-## Demo: Trigger Failover
+## Trigger the failover
 
-### Step 1 — Simulate an outage on cluster1
+### Step 1 — Simulate an outage on cluster-01
 
 ```bash
-kubectl --context=cluster1 scale deployment/backend -n default --replicas=0
+kubectl --context $CONTEXT_C1 scale deployment/backend -n default --replicas=0
 ```
 
-### Step 2 — Watch traffic shift to cluster2
+### Step 2 — Watch traffic shift to cluster-02
+
+Consul detects the failure within approximately 5–10 seconds. Run requests in a loop to observe the transition in real time:
 
 ```bash
-# Run in a loop to see the shift in real time
-watch -n 1 "kubectl --context=cluster1 exec -n default \
-  \$(kubectl --context=cluster1 get pod -n default -l app=frontend \
+watch -n 1 "kubectl --context $CONTEXT_C1 exec -n default \
+  \$(kubectl --context $CONTEXT_C1 get pod -n default -l app=frontend \
     -o jsonpath='{.items[0].metadata.name}') \
   -c frontend -- wget -qO- http://backend 2>/dev/null"
 ```
 
-Expected response **after** Consul detects the failure (~5–10 seconds):
+Once Consul marks the local backend unhealthy, the response body changes to reflect the failover target:
 
 ```json
 {
   "name": "frontend",
   "upstream_calls": {
     "http://backend": {
-      "name": "backend (cluster2 — FAILOVER)",
-      "body": "Failover response from cluster2"
+      "name": "backend (cluster-02 — FAILOVER)",
+      "body": "Failover response from cluster-02"
     }
   }
 }
 ```
 
-> **Note:** The shift latency is controlled by Consul health check intervals
-> (default ~10s). Use `connectTimeout: 5s` in the ServiceResolver to bound
-> max wait time.
+> The shift latency is controlled by Consul's health check interval (default ~10 seconds). The `connectTimeout: 5s` set in `10-service-resolver-cluster1.yaml` bounds the maximum time Envoy waits for a backend connection before failing over.
 
-### Step 3 — Failback: restore the primary
+### Step 3 — Restore the primary (failback)
 
 ```bash
-kubectl --context=cluster1 scale deployment/backend -n default --replicas=1
+kubectl --context $CONTEXT_C1 scale deployment/backend -n default --replicas=1
 ```
 
-Once the pod is `Ready`, Consul automatically routes traffic back to the local
-primary. No config changes needed.
+Once the pod passes its health check and re-registers with Consul, traffic automatically routes back to the local primary. No configuration changes are needed.
 
 ---
 
 ## Troubleshooting
 
-| Symptom | Likely Cause | Fix |
+| Symptom | Likely cause | Fix |
 |---|---|---|
-| Peering stuck in `Pending` | Token not copied or expired | Re-generate: delete and re-apply `03-acceptor-cluster2.yaml`, copy new token |
-| `connection refused` after failover | Intention missing or wrong peer name | Verify `09-intentions-cluster2.yaml` — `peer: cluster1` must match `PeeringDialer.metadata.name` |
-| ServiceResolver not activating | ExportedServices not applied | Apply `08-exported-services-cluster2.yaml`; verify `consul.hashicorp.com/peering-token` label on secret |
-| `wget` returns 503 | Pod not injected with sidecar | Check `consul.hashicorp.com/connect-inject: "true"` annotation; verify `connectInject.default: true` in Helm values |
-| Token not generated / CRDs unsynced | Consul control plane unhealthy | Verify `consul-connect-injector` and `consul-webhook-cert-manager` are `Available` and peering CRDs exist |
-| Traffic stays on cluster2 after failback | Health check re-registration lag | Wait 15–20s; check `consul catalog services -peer cluster2` on cluster1 |
-| Mesh gateway not reachable | `wanAddress.source: Service` not resolving | Verify mesh gateway Service has an external IP/hostname assigned |
+| Peering stuck in `Pending` | Token not copied to cluster-01, or expired | Re-generate: delete and re-apply `03-acceptor-cluster2.yaml`, copy the new token, then re-apply `04-dialer-cluster1.yaml` |
+| `connection refused` after failover | Intention missing or `peer` name mismatch | Verify `09-intentions-cluster2.yaml` — `peer: cluster1` must exactly match `PeeringDialer.metadata.name` on cluster-01 |
+| `wget` returns 503 | Envoy sidecar not injected | Confirm the pod shows `2/2` containers; check for `consul.hashicorp.com/connect-inject: "true"` annotation |
+| ServiceResolver not activating | `ExportedServices` not applied or not synced | Apply `08-exported-services-cluster2.yaml` and confirm `SYNCED: True` |
+| Traffic stays on cluster-02 after failback | Health check re-registration lag | Wait 15–20 seconds; check `consul catalog services -peer cluster-02` on cluster-01 |
+| Mesh gateway not reachable | LoadBalancer Service has no external IP | Verify `kubectl get svc consul-mesh-gateway -n consul` shows an external hostname |
+
+For deeper diagnosis, see [TROUBLESHOOTING.md](../TROUBLESHOOTING.md).
 
 ---
 
 ## Teardown
 
 ```bash
-# Using the runbook function
+# Using the runbook
 source runbook.sh && teardown
 
 # Or manually
-kubectl --context=cluster1 delete -f 10-service-resolver-cluster1.yaml
-kubectl --context=cluster1 delete -f 07-frontend-cluster1.yaml
-kubectl --context=cluster1 delete -f 06-backend-cluster1.yaml
-kubectl --context=cluster1 delete -f 04-dialer-cluster1.yaml
-kubectl --context=cluster1 delete secret peering-token -n consul
-kubectl --context=cluster1 delete -f 01-mesh-cluster1.yaml
+kubectl --context $CONTEXT_C1 delete -f 10-service-resolver-cluster1.yaml
+kubectl --context $CONTEXT_C1 delete -f 07-frontend-cluster1.yaml
+kubectl --context $CONTEXT_C1 delete -f 06-backend-cluster1.yaml
+kubectl --context $CONTEXT_C1 delete -f 04-dialer-cluster1.yaml
+kubectl --context $CONTEXT_C1 delete secret peering-token -n consul
+kubectl --context $CONTEXT_C1 delete -f 01-mesh-cluster1.yaml
 
-kubectl --context=cluster2 delete -f 09-intentions-cluster2.yaml
-kubectl --context=cluster2 delete -f 08-exported-services-cluster2.yaml
-kubectl --context=cluster2 delete -f 05-backend-cluster2.yaml
-kubectl --context=cluster2 delete -f 03-acceptor-cluster2.yaml
-kubectl --context=cluster2 delete secret peering-token -n consul
-kubectl --context=cluster2 delete -f 02-mesh-cluster2.yaml
+kubectl --context $CONTEXT_C2 delete -f 09-intentions-cluster2.yaml
+kubectl --context $CONTEXT_C2 delete -f 08-exported-services-cluster2.yaml
+kubectl --context $CONTEXT_C2 delete -f 05-backend-cluster2.yaml
+kubectl --context $CONTEXT_C2 delete -f 03-acceptor-cluster2.yaml
+kubectl --context $CONTEXT_C2 delete secret peering-token -n consul
+kubectl --context $CONTEXT_C2 delete -f 02-mesh-cluster2.yaml
 ```
 
 ---
 
-## File Reference
+## File reference
 
 | File | Cluster | Purpose |
 |---|---|---|
-| `01-mesh-cluster1.yaml` | cluster1 | Mesh + ProxyDefaults (dialer side) |
-| `02-mesh-cluster2.yaml` | cluster2 | Mesh + ProxyDefaults (acceptor side) |
-| `03-acceptor-cluster2.yaml` | cluster2 | PeeringAcceptor — generates token |
-| `04-dialer-cluster1.yaml` | cluster1 | PeeringDialer — establishes connection |
-| `05-backend-cluster2.yaml` | cluster2 | backend deployment (failover target) |
-| `06-backend-cluster1.yaml` | cluster1 | backend deployment (primary) |
-| `07-frontend-cluster1.yaml` | cluster1 | frontend deployment (calls backend) |
-| `08-exported-services-cluster2.yaml` | cluster2 | Exports backend to cluster1 peer |
-| `09-intentions-cluster2.yaml` | cluster2 | Allow frontend@cluster1 → backend |
-| `10-service-resolver-cluster1.yaml` | cluster1 | Failover policy to cluster2 peer |
+| `01-mesh-cluster1.yaml` | cluster-01 | Mesh + ProxyDefaults (dialer side) |
+| `02-mesh-cluster2.yaml` | cluster-02 | Mesh + ProxyDefaults (acceptor side) |
+| `03-acceptor-cluster2.yaml` | cluster-02 | PeeringAcceptor — generates the token |
+| `04-dialer-cluster1.yaml` | cluster-01 | PeeringDialer — establishes the connection |
+| `05-backend-cluster2.yaml` | cluster-02 | backend deployment (failover target) |
+| `06-backend-cluster1.yaml` | cluster-01 | backend deployment (primary) |
+| `07-frontend-cluster1.yaml` | cluster-01 | frontend deployment (calls backend) |
+| `08-exported-services-cluster2.yaml` | cluster-02 | Exports backend to cluster-01 |
+| `09-intentions-cluster2.yaml` | cluster-02 | Allows frontend@cluster-01 → backend |
+| `10-service-resolver-cluster1.yaml` | cluster-01 | Failover policy to cluster-02 |
 | `runbook.sh` | both | End-to-end automation script |

@@ -2,105 +2,63 @@
 
 **Environment:** Consul Enterprise 2.0.1-ent · OpenShift · Kubernetes CRD-based peering
 
-> This document is the companion to [CLUSTER_PEERING_SETUP_GUIDE.md](CLUSTER_PEERING_SETUP_GUIDE.md).  
-> Each issue below links back to the relevant setup step.
+> Companion to [CLUSTER_PEERING_SETUP_GUIDE.md](CLUSTER_PEERING_SETUP_GUIDE.md). Each section maps to a specific failure mode with exact reproduction steps and remediation commands.
 
 ---
 
-## Table of Contents
+## Table of contents
 
-1. [Pre-Flight Checklist](#1-pre-flight-checklist)
-2. [Peering Stuck in "Pending"](#2-peering-stuck-in-pending)
-3. [CRDs Apply but Never Reconcile](#3-crds-apply-but-never-reconcile)
-4. [Webhook Certificate Errors](#4-webhook-certificate-errors)
-5. [ProxyDefaults Datacenter Mismatch](#5-proxydefaults-datacenter-mismatch)
-6. [Helm Upgrade Blocked by Immutable Jobs](#6-helm-upgrade-blocked-by-immutable-jobs)
-7. [Reset Corrupted Peering State](#7-reset-corrupted-peering-state)
-8. [OpenShift-Specific Issues](#8-openshift-specific-issues)
-9. [Critical Requirements Summary](#9-critical-requirements-summary)
+1. [Peering stuck in Pending](#1-peering-stuck-in-pending)
+2. [CRDs apply but never reconcile](#2-crds-apply-but-never-reconcile)
+3. [Webhook certificate errors](#3-webhook-certificate-errors)
+4. [ProxyDefaults datacenter mismatch](#4-proxydefaults-datacenter-mismatch)
+5. [Helm upgrade blocked by immutable jobs](#5-helm-upgrade-blocked-by-immutable-jobs)
+6. [Reset corrupted peering state](#6-reset-corrupted-peering-state)
+7. [OpenShift-specific issues](#7-openshift-specific-issues)
+8. [Critical requirements summary](#8-critical-requirements-summary)
 
 ---
 
-## 1. Pre-Flight Checklist
+## Before diagnosing: namespace and control plane checks
 
-Verify every item below **before** applying any peering CRDs. Most activation failures trace back to one of these prerequisites.
+Two silent prerequisites cause the majority of failures. Check these first before diving into a specific issue.
 
-### Environment Variables
+**All peering CRDs must be in the `consul` namespace.** Resources created in `default` are accepted by the Kubernetes API server but never processed by the Consul controller — no error surfaces.
 
-```bash
-export CLUSTER1_CONTEXT=<context for cluster-01>
-export CLUSTER2_CONTEXT=<context for cluster-02>
-export CONSUL_VERSION=2.0.1-ent
-export HELM_RELEASE_NAME1=cluster-01
-export HELM_RELEASE_NAME2=cluster-02
-```
-
-### Required Helm Values
-
-| Value | Required Setting | Why |
+| CRD Kind | Required namespace | Applied on |
 |---|---|---|
-| `global.peering.enabled` | `true` | Activates peering CRD controllers |
-| `connectInject.enabled` | `true` | **Mandatory** — CRDs never reconcile without this |
-| `meshGateway.enabled` | `true` | Cross-cluster traffic routing |
-| `meshGateway.wanAddress.source` | `"Service"` | Advertises LoadBalancer hostname, not internal pod IP |
-| `meshGateway.wanAddress.port` | `443` | Must be reachable from the peer cluster |
-| `global.acls.manageSystemACLs` | `true` | ACL token auto-management |
-| `global.tls.enabled` | `true` | Required for mTLS peering |
-| `global.openshift.enabled` | `true` | OpenShift SCC compatibility |
-| `connectInject.cni.multus` | `true` | Required for OpenShift CNI |
-| `connectInject.transparentProxy.defaultEnabled` | `true` | Transparent proxy service routing |
+| `Mesh` | `consul` | Both clusters |
+| `ProxyDefaults` | `consul` | Both clusters |
+| `PeeringAcceptor` | `consul` | cluster-02 |
+| `PeeringDialer` | `consul` | cluster-01 |
+| `ExportedServices` | `consul` | cluster-02 |
+| `ServiceIntentions` | `consul` | cluster-02 |
 
-### Control Plane Health
-
-> **Do not apply peering CRDs until both deployments below are Available.** All peering CRDs (`Mesh`, `ProxyDefaults`, `PeeringAcceptor`, `PeeringDialer`, `ExportedServices`, `ServiceIntentions`, `ServiceResolver`) require a healthy Consul Kubernetes control plane to reconcile.
+**The `consul-connect-injector` and `consul-webhook-cert-manager` deployments must be ready before applying any peering CRD.** If either is missing or unhealthy, CRDs will apply without error but nothing will reconcile.
 
 ```bash
-kubectl --context $CLUSTER1_CONTEXT rollout status deployment/consul-connect-injector   -n consul
+kubectl --context $CLUSTER1_CONTEXT rollout status deployment/consul-connect-injector    -n consul
 kubectl --context $CLUSTER1_CONTEXT rollout status deployment/consul-webhook-cert-manager -n consul
-kubectl --context $CLUSTER2_CONTEXT rollout status deployment/consul-connect-injector   -n consul
+kubectl --context $CLUSTER2_CONTEXT rollout status deployment/consul-connect-injector    -n consul
 kubectl --context $CLUSTER2_CONTEXT rollout status deployment/consul-webhook-cert-manager -n consul
 ```
 
-### Required CRDs
-
-```bash
-kubectl --context $CLUSTER1_CONTEXT get crd \
-  peeringacceptors.consul.hashicorp.com \
-  peeringdialers.consul.hashicorp.com \
-  exportedservices.consul.hashicorp.com \
-  serviceintentions.consul.hashicorp.com \
-  serviceresolvers.consul.hashicorp.com
-```
-
-If any CRD is missing, re-run `helm install` or `helm upgrade`. All five must be present before applying CRs.
-
-### Namespace Requirements
-
-> **All peering CRDs must be in the `consul` namespace.** Applying them to `default` is the most common silent failure — resources are accepted by the API server but never reconciled by the Consul controller.
-
-| CRD Kind | Required Namespace | Cluster |
-|---|---|---|
-| `PeeringAcceptor` | `consul` | cluster-02 (acceptor) |
-| `PeeringDialer` | `consul` | cluster-01 (dialer) |
-| `ExportedServices` | `consul` | cluster-02 (acceptor) |
-| `ServiceIntentions` | `consul` | cluster-02 (acceptor) |
-| `Mesh` | `consul` | both clusters |
-| `ProxyDefaults` | `consul` | both clusters |
-
 ---
 
-## 2. Peering Stuck in "Pending"
+## 1. Peering stuck in Pending
 
-**Symptoms:** Consul UI shows peering in "Pending" state; `PeeringDialer` or `PeeringAcceptor` `SYNCED` column is not `True`; no heartbeat data.
+**Symptoms:** Consul UI shows peering in `Pending` state. `kubectl get peeringdialers -n consul` or `get peeringacceptors -n consul` shows `SYNCED: False` or no `SYNCED` column. No heartbeat data.
 
-### Step 1 — Verify CRDs are in the correct namespace
+Work through the following checks in order.
+
+### Check 1 — Confirm CRDs are in the consul namespace
 
 ```bash
 kubectl --context $CLUSTER1_CONTEXT get peeringdialers  -A
 kubectl --context $CLUSTER2_CONTEXT get peeringacceptors -A
 ```
 
-Both must show `namespace: consul`. If showing `namespace: default`, delete and recreate:
+Both must show `NAMESPACE: consul`. If either shows `default`, delete the misplaced resource and re-apply from the repo file (which already has the correct namespace):
 
 ```bash
 kubectl --context $CLUSTER2_CONTEXT delete peeringacceptor cluster-02 -n default
@@ -110,14 +68,16 @@ kubectl --context $CLUSTER1_CONTEXT delete peeringdialer cluster-01 -n default
 kubectl --context $CLUSTER1_CONTEXT apply -f dialer.yaml
 ```
 
-### Step 2 — Verify the peering token exists on both clusters
+### Check 2 — Confirm the peering token exists on both clusters
+
+The token Secret must be present on cluster-02 (generated by the acceptor) and on cluster-01 (copied before the dialer was applied):
 
 ```bash
-kubectl --context $CLUSTER2_CONTEXT get secret peering-token -n consul   # generated by acceptor
-kubectl --context $CLUSTER1_CONTEXT get secret peering-token -n consul   # copied before dialer
+kubectl --context $CLUSTER2_CONTEXT get secret peering-token -n consul
+kubectl --context $CLUSTER1_CONTEXT get secret peering-token -n consul
 ```
 
-If the token is missing on cluster-01, copy it from cluster-02 before applying the Dialer:
+If the token is missing on cluster-01, copy it now — then re-apply the dialer:
 
 ```bash
 TOKEN=$(kubectl --context $CLUSTER2_CONTEXT \
@@ -127,9 +87,13 @@ kubectl --context $CLUSTER1_CONTEXT create secret generic peering-token \
   --namespace=consul \
   --from-literal=data="${TOKEN}" \
   --dry-run=client -o yaml | kubectl --context $CLUSTER1_CONTEXT apply -f -
+
+kubectl --context $CLUSTER1_CONTEXT apply -f dialer.yaml
 ```
 
-### Step 3 — Verify the mesh gateway has a public WAN address
+### Check 3 — Confirm the mesh gateway has a public WAN address
+
+The mesh gateway must advertise an externally reachable hostname, not its internal pod IP. Query the Consul catalog to verify:
 
 ```bash
 TOKEN=$(kubectl --context $CLUSTER1_CONTEXT get secret consul-bootstrap-acl-token \
@@ -141,7 +105,7 @@ kubectl --context $CLUSTER1_CONTEXT exec -n consul consul-server-0 \
   "https://localhost:8501/v1/catalog/service/mesh-gateway"
 ```
 
-The `wan.Address` must be the LoadBalancer hostname, **not** an internal pod IP:
+Look for `ServiceTaggedAddresses.wan`. It must show the LoadBalancer hostname, not a `10.x.x.x` address:
 
 ```json
 "ServiceTaggedAddresses": {
@@ -150,7 +114,7 @@ The `wan.Address` must be the LoadBalancer hostname, **not** an internal pod IP:
 }
 ```
 
-If showing an internal IP, fix `values.yaml` (`meshGateway.wanAddress.source: "Service"`) and restart:
+If it shows an internal IP, `meshGateway.wanAddress.source` is not set to `"Service"`. Fix `values.yaml` and upgrade:
 
 ```bash
 helm upgrade $HELM_RELEASE_NAME1 hashicorp/consul \
@@ -160,29 +124,29 @@ helm upgrade $HELM_RELEASE_NAME1 hashicorp/consul \
 kubectl --context $CLUSTER1_CONTEXT rollout restart deployment consul-mesh-gateway -n consul
 ```
 
-### Step 4 — Check Consul server logs
+### Check 4 — Read the server logs for gRPC errors
 
 ```bash
 kubectl --context $CLUSTER2_CONTEXT logs -n consul consul-server-0 \
   --tail=50 | grep -i "peer\|error\|grpc"
 ```
 
-| Log Error | Cause | Fix |
+| Log message | Cause | Action |
 |---|---|---|
-| `invalid peering establishment secret` | Stale or regenerated token | Reset peering state (see [Issue 7](#7-reset-corrupted-peering-state)) |
-| `initial subscription for unknown PeerID` | Corrupted state — peer IDs mismatched | Reset peering state (see [Issue 7](#7-reset-corrupted-peering-state)) |
-| `authentication handshake failed` | TLS config mismatch between clusters | Verify `tls.enabled: true` and `verify_outgoing: true` on both clusters |
-| `dial tcp <internal-ip>:8443: i/o timeout` | Mesh gateway WAN address is internal | Fix `meshGateway.wanAddress.source: "Service"` |
+| `invalid peering establishment secret` | Token was regenerated; dialer holds an old token | Full state reset — see [Issue 6](#6-reset-corrupted-peering-state) |
+| `initial subscription for unknown PeerID` | Peer IDs are mismatched after partial state corruption | Full state reset — see [Issue 6](#6-reset-corrupted-peering-state) |
+| `authentication handshake failed` | TLS configuration mismatch between clusters | Verify `global.tls.enabled: true` and `verify_outgoing: true` on both clusters |
+| `dial tcp <internal-ip>:8443: i/o timeout` | Mesh gateway WAN address is an internal IP | Fix `meshGateway.wanAddress.source: "Service"` — see Check 3 above |
 
 ---
 
-## 3. CRDs Apply but Never Reconcile
+## 2. CRDs apply but never reconcile
 
-**Symptoms:** `SyncedToConsul` condition stays `False` or is absent; `kubectl get peeringacceptors -n consul` shows no `SYNCED` column; token Secret is never generated.
+**Symptoms:** `kubectl apply` succeeds but the `SyncedToConsul` condition stays `False` or is absent. The peering token Secret is never generated. `kubectl get peeringacceptors -n consul` returns no `SYNCED` column.
 
-**Likely cause:** `consul-connect-injector` or `consul-webhook-cert-manager` is missing or unhealthy, or peering CRDs were not installed by Helm.
+**Root cause:** The `consul-connect-injector` or `consul-webhook-cert-manager` deployment is missing or unhealthy, or peering CRDs were not installed by the Helm chart.
 
-### Step 1 — Check control-plane deployments
+### Step 1 — Check the control-plane deployments
 
 ```bash
 kubectl --context $CLUSTER1_CONTEXT get deploy \
@@ -191,7 +155,7 @@ kubectl --context $CLUSTER2_CONTEXT get deploy \
   consul-connect-injector consul-webhook-cert-manager -n consul
 ```
 
-### Step 2 — Check for peering CRDs
+### Step 2 — Check for the peering CRDs
 
 ```bash
 kubectl --context $CLUSTER1_CONTEXT get crd \
@@ -216,62 +180,57 @@ helm upgrade $HELM_RELEASE_NAME2 hashicorp/consul \
   --kube-context $CLUSTER2_CONTEXT --cleanup-on-fail
 ```
 
-### Step 4 — Verify readiness after upgrade
+Wait for both deployments to be fully ready before re-applying peering CRDs:
 
 ```bash
-kubectl --context $CLUSTER1_CONTEXT rollout status deployment/consul-connect-injector   -n consul
+kubectl --context $CLUSTER1_CONTEXT rollout status deployment/consul-connect-injector    -n consul
 kubectl --context $CLUSTER1_CONTEXT rollout status deployment/consul-webhook-cert-manager -n consul
-kubectl --context $CLUSTER2_CONTEXT rollout status deployment/consul-connect-injector   -n consul
+kubectl --context $CLUSTER2_CONTEXT rollout status deployment/consul-connect-injector    -n consul
 kubectl --context $CLUSTER2_CONTEXT rollout status deployment/consul-webhook-cert-manager -n consul
 ```
 
 ---
 
-## 4. Webhook Certificate Errors
+## 3. Webhook certificate errors
 
-**Symptoms:** `failed calling webhook: tls: failed to verify certificate`
+**Symptoms:** Pod creation or CRD application fails with `failed calling webhook: tls: failed to verify certificate`.
 
-Occurs when stale `MutatingWebhookConfiguration` objects reference an expired or rotated cert. Common after cluster restarts or Helm upgrades.
+This happens when stale `MutatingWebhookConfiguration` objects reference an expired or rotated certificate. It is common after cluster restarts or Helm upgrades where the cert-manager rotated the webhook cert before the configuration was updated.
 
-### Step 1 — Restart the connect-injector
+Restart the connect-injector to trigger certificate rotation:
 
 ```bash
 kubectl --context $CLUSTER1_CONTEXT rollout restart deployment consul-connect-injector -n consul
 kubectl --context $CLUSTER1_CONTEXT rollout status  deployment consul-connect-injector -n consul
 ```
 
-### Step 2 — Delete stale webhook configurations
+If the error persists, delete the stale webhook configurations and restart again to let the controller recreate them:
 
 ```bash
 kubectl --context $CLUSTER1_CONTEXT delete mutatingwebhookconfiguration \
   consul-connect-injector --ignore-not-found
 kubectl --context $CLUSTER1_CONTEXT delete mutatingwebhookconfiguration \
   consul-mutating-webhook-configuration --ignore-not-found
-```
 
-### Step 3 — Restart again to recreate the webhooks
-
-```bash
 kubectl --context $CLUSTER1_CONTEXT rollout restart deployment consul-connect-injector -n consul
 ```
 
-**If a CRD is stuck in `Terminating`** — the finalizer is blocking deletion. Remove it manually:
+**If a CRD is stuck in `Terminating`**, a finalizer is blocking deletion. Remove it manually:
 
 ```bash
 kubectl --context $CLUSTER2_CONTEXT patch peeringacceptor cluster-02 \
-  -n consul --type=merge \
-  -p '{"metadata":{"finalizers":[]}}'
+  -n consul --type=merge -p '{"metadata":{"finalizers":[]}}'
 ```
 
 ---
 
-## 5. ProxyDefaults Datacenter Mismatch
+## 4. ProxyDefaults datacenter mismatch
 
-**Symptoms:** Logs show `config entry managed in different datacenter: "dc2"`. `ProxyDefaults` or `Mesh` apply as Kubernetes objects but `SyncedToConsul` reports an error mentioning a foreign datacenter.
+**Symptoms:** `ProxyDefaults` or `Mesh` resources apply without error as Kubernetes objects, but `SyncedToConsul` reports a message like `config entry managed in different datacenter: "dc2"`.
 
-**Cause:** The `--set global.datacenter` value used during `helm install` does not match the datacenter Consul was initialized with, or both clusters were installed with the same datacenter name.
+**Root cause:** The `--set global.datacenter` value passed during `helm install` does not match what Consul was initialized with, or both clusters were installed with the same datacenter name.
 
-### Step 1 — Verify datacenter names
+Verify the datacenter name on each cluster:
 
 ```bash
 kubectl --context $CLUSTER1_CONTEXT get configmap consul-server-config \
@@ -283,45 +242,40 @@ kubectl --context $CLUSTER2_CONTEXT get configmap consul-server-config \
 # Expected: dc2
 ```
 
-> cluster-01 must always use `dc1` and cluster-02 must always use `dc2`. Swapping or reusing names causes config-entry ownership errors.
-
-### Step 2 — Delete immutable jobs and upgrade with the correct datacenter
+If the names are wrong or identical, delete the immutable ACL jobs first (Helm cannot update them), then upgrade with the correct datacenter name:
 
 ```bash
 kubectl --context $CLUSTER2_CONTEXT delete jobs \
-  consul-server-acl-init \
-  consul-server-acl-init-cleanup \
-  consul-gateway-resources \
+  consul-server-acl-init consul-server-acl-init-cleanup consul-gateway-resources \
   -n consul --ignore-not-found
 
 helm upgrade $HELM_RELEASE_NAME2 hashicorp/consul \
   --namespace consul --version $CONSUL_VERSION \
   --values values.yaml --set global.datacenter=dc2 \
   --kube-context $CLUSTER2_CONTEXT --cleanup-on-fail
+```
 
-# Remove the stale ProxyDefaults that was synced under the wrong datacenter
+Delete any `ProxyDefaults` that synced under the wrong datacenter so the controller recreates it correctly:
+
+```bash
 kubectl --context $CLUSTER2_CONTEXT delete proxydefaults global -n consul --ignore-not-found
 ```
 
 ---
 
-## 6. Helm Upgrade Blocked by Immutable Jobs
+## 5. Helm upgrade blocked by immutable jobs
 
 **Symptoms:** `helm upgrade` fails with `field is immutable`.
 
-Kubernetes Jobs are immutable once created. Helm cannot update them during an upgrade. This commonly blocks adding `global.peering.enabled: true` to an existing install.
+Kubernetes Jobs are immutable once created. Helm cannot update them in place during an upgrade. This commonly occurs when enabling `global.peering.enabled: true` on an existing installation.
 
-### Resolution
+Delete the jobs first, then upgrade. The ACL init job is idempotent — re-running it is safe and will not overwrite existing tokens:
 
 ```bash
-# Delete the immutable jobs first
 kubectl --context $CLUSTER1_CONTEXT delete jobs \
-  consul-server-acl-init \
-  consul-server-acl-init-cleanup \
-  consul-gateway-resources \
+  consul-server-acl-init consul-server-acl-init-cleanup consul-gateway-resources \
   -n consul --ignore-not-found
 
-# Then run the upgrade
 helm upgrade $HELM_RELEASE_NAME1 hashicorp/consul \
   --namespace consul --version $CONSUL_VERSION \
   --values values.yaml \
@@ -332,137 +286,132 @@ helm upgrade $HELM_RELEASE_NAME1 hashicorp/consul \
   --cleanup-on-fail
 ```
 
-> The ACL init job will re-run after deletion. This is safe — it is idempotent and will not overwrite existing tokens.
-
 ---
 
-## 7. Reset Corrupted Peering State
+## 6. Reset corrupted peering state
 
-Use this procedure when:
-- Tokens have been regenerated multiple times and the Dialer is out of sync
-- `consul peering list` shows peer IDs that don't match the current CRDs
-- Peering is permanently stuck and re-applying CRDs has no effect
+Use this procedure when peering cannot be recovered by re-applying CRDs — for example, when tokens have been regenerated multiple times, when `consul peering list` shows stale peer IDs, or when the peering is permanently stuck regardless of CRD changes.
 
-> **A peering token is single-use.** Re-applying the `PeeringAcceptor` generates a new token and invalidates all previous tokens. Any Dialer using an old token must be deleted and recreated.
+**A peering token is single-use.** Each time `acceptor.yaml` is re-applied, a new token is generated and the previous one is permanently invalidated. Any dialer that used the old token must be fully deleted and recreated with the new token.
 
 ```bash
-# 1. Retrieve bootstrap ACL tokens
+# Retrieve bootstrap ACL tokens for both clusters
 TOKEN1=$(kubectl --context $CLUSTER1_CONTEXT get secret consul-bootstrap-acl-token \
   -n consul -o jsonpath='{.data.token}' | base64 --decode)
-
 TOKEN2=$(kubectl --context $CLUSTER2_CONTEXT get secret consul-bootstrap-acl-token \
   -n consul -o jsonpath='{.data.token}' | base64 --decode)
 
-# 2. Delete the peering from Consul internal state on both sides
+# Remove the peering from Consul's internal state on both sides
 kubectl --context $CLUSTER1_CONTEXT exec -n consul consul-server-0 \
   -- consul peering delete -name cluster-02 -token $TOKEN1
-
 kubectl --context $CLUSTER2_CONTEXT exec -n consul consul-server-0 \
   -- consul peering delete -name cluster-01 -token $TOKEN2
 
-# 3. Delete the Kubernetes resources on both clusters
-kubectl --context $CLUSTER2_CONTEXT delete peeringacceptor cluster-02  -n consul --ignore-not-found
-kubectl --context $CLUSTER2_CONTEXT delete secret peering-token         -n consul --ignore-not-found
-kubectl --context $CLUSTER1_CONTEXT delete peeringdialer  cluster-01  -n consul --ignore-not-found
-kubectl --context $CLUSTER1_CONTEXT delete secret peering-token         -n consul --ignore-not-found
+# Delete all Kubernetes resources related to the peering on both clusters
+kubectl --context $CLUSTER2_CONTEXT delete peeringacceptor cluster-02 -n consul --ignore-not-found
+kubectl --context $CLUSTER2_CONTEXT delete secret peering-token        -n consul --ignore-not-found
+kubectl --context $CLUSTER1_CONTEXT delete peeringdialer  cluster-01 -n consul --ignore-not-found
+kubectl --context $CLUSTER1_CONTEXT delete secret peering-token        -n consul --ignore-not-found
 
-# 4. Wait for state to fully clear
+# Wait 30 seconds for state to fully clear before restarting
 sleep 30
 
-# 5. Restart fresh — acceptor first, then copy token, then dialer
+# Re-apply the acceptor to generate a fresh token
 kubectl --context $CLUSTER2_CONTEXT apply -f acceptor.yaml
 ```
 
-After the token Secret appears on cluster-02, copy it to cluster-01 and re-apply the Dialer (see [Setup Guide Step 3.3–4](CLUSTER_PEERING_SETUP_GUIDE.md#33-copy-the-token-to-cluster-01)).
+Once the new token Secret is populated on cluster-02, copy it to cluster-01 and re-apply the dialer, following [Setup Guide steps 4 and 5](CLUSTER_PEERING_SETUP_GUIDE.md#4-generate-the-peering-token).
 
 ---
 
-## 8. OpenShift-Specific Issues
+## 7. OpenShift-specific issues
 
-### Image Pull Failures — Enterprise registry secret
+### Enterprise image pull failures
 
-The `values.yaml` references a pull secret named `19261309-openshift-secret-pull-secret`. This must exist in the `consul` namespace on both clusters before `helm install`:
+The `values.yaml` references an image pull secret named `19261309-openshift-secret-pull-secret`. This must exist in the `consul` namespace on both clusters before `helm install`. Verify it is present:
 
 ```bash
 kubectl --context $CLUSTER1_CONTEXT get secret 19261309-openshift-secret-pull-secret -n consul
 kubectl --context $CLUSTER2_CONTEXT get secret 19261309-openshift-secret-pull-secret -n consul
 ```
 
-### Enterprise License Secret
+If pods are in `ImagePullBackOff`, create the secret from your HashiCorp entitlement credentials, then restart the affected pods.
 
-Consul Enterprise requires a valid license. The secret must be named `consul-ent-license` with key `key`:
+### Enterprise license not found
+
+Consul Enterprise will start without error but enter a crash loop approximately 6 hours after launch if no valid license is present. Create the secret before running `helm install`:
 
 ```bash
+# Verify on both clusters
 kubectl --context $CLUSTER1_CONTEXT get secret consul-ent-license -n consul
 kubectl --context $CLUSTER2_CONTEXT get secret consul-ent-license -n consul
-```
 
-If missing:
-
-```bash
+# Create if missing
 kubectl --context $CLUSTER1_CONTEXT create secret generic consul-ent-license \
+  --namespace consul --from-literal=key="<your-license-string>"
+kubectl --context $CLUSTER2_CONTEXT create secret generic consul-ent-license \
   --namespace consul --from-literal=key="<your-license-string>"
 ```
 
-> A missing license causes server pods to enter a crash loop within 6 hours of start. Create the secret before running `helm install`.
+### CNI Multus — pods stuck in `Init:0/1`
 
-### CNI Multus — Pods Stuck in `Init:0/1`
-
-The `values.yaml` specifies these CNI paths for OpenShift:
+The CNI paths in `values.yaml` must match the actual paths on your OpenShift nodes:
 
 ```yaml
 cniBinDir: /var/lib/cni/bin
 cniNetDir: /etc/kubernetes/cni/net.d
 ```
 
-If your cluster uses different paths, update `values.yaml` and upgrade the Helm release before applying any peering CRDs.
+If your cluster uses different paths, update `values.yaml` and run `helm upgrade` before applying any peering CRDs.
 
-### Security Context Constraints (SCC)
+### Security Context Constraints (SCC) violations
 
-OpenShift SCCs can prevent mesh gateway and connect-injector pods from binding to required ports. Check for SCC violations:
+Consul's Helm chart creates the required SCCs automatically when `global.openshift.enabled: true` is set. If mesh gateway or connect-injector pods are still being denied, check for SCC-related events:
 
 ```bash
 kubectl --context $CLUSTER1_CONTEXT describe pod -n consul -l component=mesh-gateway \
   | grep -A5 "Warning\|SCC\|forbidden"
 ```
 
-Consul's Helm chart creates required SCCs automatically when `global.openshift.enabled: true`. If pods are still denied, verify the ServiceAccount has the correct SCC binding:
+Verify the ServiceAccount has the correct SCC binding:
 
 ```bash
 oc --context $CLUSTER1_CONTEXT get scc consul-mesh-gateway
 oc --context $CLUSTER1_CONTEXT adm policy who-can use scc consul-mesh-gateway
 ```
 
-### Mesh Gateway Service — No External IP Assigned
+### Mesh gateway stuck with no external IP
+
+The mesh gateway's LoadBalancer Service must receive an external hostname before cross-cluster connectivity is possible:
 
 ```bash
 kubectl --context $CLUSTER1_CONTEXT get svc consul-mesh-gateway -n consul
-# EXTERNAL-IP column must show a hostname — not <pending>
+# EXTERNAL-IP must show a hostname — not <pending>
 ```
 
-If stuck at `<pending>`, verify that your cloud provider's load balancer controller is running and that the namespace has any required annotations for your environment. The mesh gateway cannot establish cross-cluster connectivity without a resolvable external address.
+If `EXTERNAL-IP` is stuck at `<pending>`, verify that the cloud provider's load balancer controller is healthy and that the `consul` namespace has any required annotations for your environment.
 
 ---
 
-## 9. Critical Requirements Summary
+## 8. Critical requirements summary
 
-| Requirement | Correct Setting | Common Mistake |
+| Requirement | Correct value | What goes wrong if violated |
 |---|---|---|
-| `connectInject.enabled` | `true` | Omitting it — peering CRDs are installed but never reconciled |
-| `meshGateway.wanAddress.source` | `"Service"` | Default advertises internal pod IP; peer cluster cannot reach it |
-| Datacenter names | cluster-01 = `dc1`, cluster-02 = `dc2` | Same name on both, or swapped — causes config-entry ownership errors |
-| CRD namespace | `consul` on all peering CRDs | Creating in `default` — silently ignored by the controller |
-| Peer name references | Must match `metadata.name` on the Acceptor/Dialer | Typos in `peer:` fields of `ExportedServices` or `ServiceIntentions` |
-| Peering token lifecycle | Single-use — generate once, copy once | Re-applying the Acceptor invalidates all prior tokens |
-| Order of operations | Mesh → ProxyDefaults → Acceptor → copy token → Dialer → ExportedServices → Intentions | Applying Dialer before the token Secret exists causes immediate failure |
-| Enterprise license | Secret `consul-ent-license` with key `key` exists before install | Missing license — server crash loop within 6 hours |
-| OpenShift pull secret | Exists in `consul` namespace before `helm install` | Created after install — pods stuck in `ImagePullBackOff` |
+| `connectInject.enabled` | `true` | Peering CRDs install but never reconcile — no error surfaces |
+| `meshGateway.wanAddress.source` | `"Service"` | Mesh gateway registers its pod IP; peer cluster cannot reach it |
+| Datacenter names | cluster-01 = `dc1`, cluster-02 = `dc2` | `ProxyDefaults` and `Mesh` fail sync with a datacenter ownership error |
+| CRD namespace | `consul` on all peering CRDs | Resources exist in Kubernetes but are silently ignored by the controller |
+| Peer name references | Match `metadata.name` on the Acceptor/Dialer exactly | `ExportedServices` and `ServiceIntentions` fail to associate with the peering |
+| Peering token | Single-use — generate once, copy immediately | Re-applying the acceptor invalidates all prior tokens; dialer must be recreated |
+| Apply order | Mesh + ProxyDefaults → Acceptor → copy token → Dialer → ExportedServices → Intentions | Applying the dialer before the token Secret exists causes immediate failure |
+| Enterprise license | Secret `consul-ent-license` with key `key` created before install | Server pods crash-loop after 6 hours |
+| OpenShift pull secret | Created in `consul` namespace before `helm install` | Pods stuck in `ImagePullBackOff` |
 
 ---
 
-## Additional Resources
+## Additional resources
 
-- [Consul Cluster Peering Documentation](https://developer.hashicorp.com/consul/docs/connect/cluster-peering)
+- [Consul Cluster Peering — HashiCorp Docs](https://developer.hashicorp.com/consul/docs/connect/cluster-peering)
 - [Mesh Gateway Configuration](https://developer.hashicorp.com/consul/docs/connect/gateways/mesh-gateway)
 - [Consul CRD Reference](https://developer.hashicorp.com/consul/docs/k8s/crds)
-- [Consul Service Mesh on Kubernetes](https://developer.hashicorp.com/consul/docs/k8s)
+- [Consul on Kubernetes](https://developer.hashicorp.com/consul/docs/k8s)
