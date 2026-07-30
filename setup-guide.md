@@ -410,3 +410,7 @@ kubectl --context $CLUSTER1_CONTEXT logs -n consul deployment/consul-mesh-gatewa
 kubectl --context $CLUSTER1_CONTEXT logs -n consul consul-server-0 --tail=100 \
   | grep -i "peer\|grpc\|error"
 ```
+
+---
+
+With peering verified, continue to **[east-west-failover/DEMO.md](east-west-failover/DEMO.md)** to validate the setup with a realistic failover scenario.

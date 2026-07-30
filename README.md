@@ -10,7 +10,7 @@ This repo contains the Helm configuration, Consul CRDs, and sample application m
 
 ## Getting started
 
-**[setup-guide.md](setup-guide.md)** walks through every step from Helm install to verified cross-cluster communication. Follow it in order — each step has an inline verification checkpoint before you move on.
+**[setup-guide.md](setup-guide.md)** walks through every step from enabling peering on your existing Consul clusters to verified cross-cluster communication. Follow it in order — each step has an inline verification checkpoint before you move on.
 
 Once peering is established, **[east-west-failover/DEMO.md](east-west-failover/DEMO.md)** lets you validate the setup with a realistic two-service application. It simulates a primary outage and confirms that traffic automatically fails over to the peer cluster — a good confidence check before using peering in production.
 
